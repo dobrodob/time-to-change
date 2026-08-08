@@ -466,16 +466,70 @@ export class StateRepo {
     ]);
   }
 
+  /**
+   * Atomically enforce both public-instance limits while subscribing. The
+   * subscription is inserted only if the asset is already active or capacity
+   * exists; activation then happens only when that subscription exists.
+   */
+  async subscribeAndActivateWithinLimits(
+    chatId: number,
+    symbol: string,
+    dir: Direction,
+    maxUserSubscriptions: number,
+    maxActiveAssets: number,
+  ): Promise<boolean> {
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO subscriptions (chat_id, symbol, direction, subscribed_at)
+           SELECT ?, ?, ?, ?
+           WHERE (SELECT COUNT(*) FROM subscriptions WHERE chat_id = ?) < ?
+             AND EXISTS (
+               SELECT 1 FROM assets
+               WHERE symbol = ?
+                 AND (
+                   active = 1 OR
+                   (SELECT COUNT(*) FROM assets WHERE active = 1) < ?
+                 )
+             )
+           ON CONFLICT(chat_id, symbol, direction) DO NOTHING`,
+        )
+        .bind(
+          chatId,
+          symbol,
+          dir,
+          new Date().toISOString(),
+          chatId,
+          maxUserSubscriptions,
+          symbol,
+          maxActiveAssets,
+        ),
+      this.db
+        .prepare(
+          `UPDATE assets
+           SET active = 1
+           WHERE symbol = ?
+             AND EXISTS (
+               SELECT 1 FROM subscriptions
+               WHERE chat_id = ? AND symbol = ? AND direction = ?
+             )`,
+        )
+        .bind(symbol, chatId, symbol, dir),
+    ]);
+    return (await this.getSubscription(chatId, symbol, dir)) !== null;
+  }
+
   async deactivateAssetIfOrphan(symbol: string): Promise<boolean> {
-    const row = await this.db
-      .prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE symbol = ?")
-      .bind(symbol)
-      .first<{ c: number }>();
-    if ((row?.c ?? 0) === 0) {
-      await this.db.prepare("UPDATE assets SET active = 0 WHERE symbol = ?").bind(symbol).run();
-      return true;
-    }
-    return false;
+    const res = await this.db
+      .prepare(
+        `UPDATE assets
+         SET active = 0
+         WHERE symbol = ? AND active = 1
+           AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE symbol = ?)`,
+      )
+      .bind(symbol, symbol)
+      .run();
+    return (res.meta.changes ?? 0) > 0;
   }
 
   // ============ Subscriptions ============
@@ -567,6 +621,8 @@ export class StateRepo {
         last_alert_buy_ts: string | null;
         last_alert_buy_regime: string | null;
         last_alert_buy_score: number | null;
+        last_score_breakdown_sell_json: string | null;
+        last_score_breakdown_buy_json: string | null;
         last_score_breakdown_json: string | null;
         quota_credits_today: number;
       }>();
@@ -583,6 +639,12 @@ export class StateRepo {
       last_alert_buy_ts: row.last_alert_buy_ts,
       last_alert_buy_regime: row.last_alert_buy_regime,
       last_alert_buy_score: row.last_alert_buy_score,
+      last_score_breakdown_sell: row.last_score_breakdown_sell_json
+        ? lastScoreBreakdownSchema.parse(JSON.parse(row.last_score_breakdown_sell_json))
+        : null,
+      last_score_breakdown_buy: row.last_score_breakdown_buy_json
+        ? lastScoreBreakdownSchema.parse(JSON.parse(row.last_score_breakdown_buy_json))
+        : null,
       last_score_breakdown: row.last_score_breakdown_json
         ? lastScoreBreakdownSchema.parse(JSON.parse(row.last_score_breakdown_json))
         : null,
@@ -631,6 +693,27 @@ export class StateRepo {
     await this.db
       .prepare("UPDATE asset_state SET last_score_breakdown_json = ? WHERE symbol = ?")
       .bind(JSON.stringify(breakdown), symbol)
+      .run();
+  }
+
+  async setAssetScoreBreakdowns(
+    symbol: string,
+    breakdowns: { sell: LastScoreBreakdown | null; buy: LastScoreBreakdown | null },
+  ): Promise<void> {
+    await this.upsertAssetState(symbol);
+    const sellJson = breakdowns.sell === null ? null : JSON.stringify(breakdowns.sell);
+    const buyJson = breakdowns.buy === null ? null : JSON.stringify(breakdowns.buy);
+    // Keep the legacy column as a rollout/health compatibility view only.
+    const legacyJson = sellJson ?? buyJson;
+    await this.db
+      .prepare(
+        `UPDATE asset_state
+         SET last_score_breakdown_sell_json = ?,
+             last_score_breakdown_buy_json = ?,
+             last_score_breakdown_json = ?
+         WHERE symbol = ?`,
+      )
+      .bind(sellJson, buyJson, legacyJson, symbol)
       .run();
   }
 

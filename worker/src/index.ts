@@ -18,7 +18,7 @@ import { runAnalyze } from "./analyze/job";
 import { runDigest } from "./digest/job";
 import { validateEnv } from "./env";
 import { handleHealth } from "./lib/health";
-import { log } from "./lib/log";
+import { errorKind, log } from "./lib/log";
 import { runFreshnessCheck } from "./monitor/freshness";
 import { runQuotaReset } from "./monitor/quota";
 import { handleWebhook } from "./telegram/webhook";
@@ -29,7 +29,7 @@ export default {
     try {
       validated = validateEnv(env);
     } catch (err) {
-      log("error", "env_invalid", { error: String(err).slice(0, 300) });
+      log("error", "env_invalid", { error_kind: errorKind(err) });
       return new Response("env invalid", { status: 500 });
     }
     const url = new URL(request.url);
@@ -47,7 +47,7 @@ export default {
     try {
       validated = validateEnv(env);
     } catch (err) {
-      log("error", "scheduled_env_invalid", { error: String(err).slice(0, 300) });
+      log("error", "scheduled_env_invalid", { error_kind: errorKind(err) });
       return;
     }
     const cron = event.cron;

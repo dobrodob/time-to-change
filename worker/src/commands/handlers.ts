@@ -12,10 +12,17 @@
 import { computeEdgePct } from "../analyze/gating";
 import { resolveSymbolAuto } from "../analyze/providers";
 import type { ValidatedEnv } from "../env";
-import { log } from "../lib/log";
+import { errorKind, log } from "../lib/log";
 import { nowIso } from "../lib/time";
 import type { StateRepo } from "../state/repo";
-import type { Asset, AssetState, User } from "../state/schema";
+import {
+  assetStateForDirection,
+  scoreBreakdownForDirection,
+  type Asset,
+  type AssetState,
+  type Direction,
+  type User,
+} from "../state/schema";
 import { TelegramAuthError, TelegramBlockedError, type TelegramClient } from "../telegram/api";
 import type {
   ParsedCallback,
@@ -41,6 +48,8 @@ import {
   formatHelp,
   formatHistory,
   formatLeft,
+  formatOwnerCannotLeave,
+  formatOwnerOnly,
   formatQuietOff,
   formatQuietSet,
   formatQuietShow,
@@ -86,11 +95,17 @@ async function safeSend(tg: TelegramClient, chatId: number, text: string): Promi
   } catch (err) {
     if (err instanceof TelegramAuthError) throw err;
     if (err instanceof TelegramBlockedError) {
-      log("warn", "telegram_blocked", { chat_id: chatId });
+      log("warn", "telegram_blocked");
       return;
     }
-    log("error", "telegram_send_failed", { chat_id: chatId, error: String(err).slice(0, 200) });
+    log("error", "telegram_send_failed", { error_kind: errorKind(err) });
   }
+}
+
+async function requireOwner(tg: TelegramClient, user: User): Promise<boolean> {
+  if (user.role === "owner") return true;
+  await safeSend(tg, user.chat_id, formatOwnerOnly());
+  return false;
 }
 
 /** Регистрирует Telegram-меню если устарело или изменилось. */
@@ -110,7 +125,7 @@ async function ensureMenu(repo: StateRepo, tg: TelegramClient): Promise<void> {
     await repo.setMenuRegistered(now.toISOString(), expectedCount);
     log("info", "telegram_menu_updated", { count: expectedCount });
   } catch (err) {
-    log("warn", "telegram_menu_failed", { error: String(err).slice(0, 200) });
+    log("warn", "telegram_menu_failed", { error_kind: errorKind(err) });
   }
 }
 
@@ -153,7 +168,7 @@ export async function dispatchMessage(
     const owner = await repo.getOwner();
     const role = owner === null ? "owner" : "member";
     user = await repo.addUser({ chat_id: chatId, role, name: senderName });
-    log("info", "user_registered", { chat_id: chatId, role, name: senderName });
+    log("info", "user_registered", { role });
     if (cmd.kind === "start") {
       // Welcome + help, дальше не обрабатываем (он только что зашёл).
       await safeSend(tg, chatId, formatStart());
@@ -183,7 +198,7 @@ export async function dispatchMessage(
       return;
 
     case "history": {
-      const alerts = await repo.getRecentAlerts(10);
+      const alerts = await repo.getRecentAlertsForUser(chatId, 10);
       await safeSend(tg, chatId, formatHistory(alerts, TZ));
       return;
     }
@@ -224,30 +239,37 @@ export async function dispatchMessage(
       return;
 
     case "users":
-      // Public list: можно увидеть кто пользуется (без contact info).
+      if (!(await requireOwner(tg, user))) return;
       await safeSend(tg, chatId, formatUsersList(await repo.listUsers()));
       return;
 
     case "leave":
-      // Любой user может уйти (включая owner — теперь это не критично).
+      if (user.role === "owner") {
+        await safeSend(tg, chatId, formatOwnerCannotLeave());
+        return;
+      }
       await repo.removeUser(chatId);
       await safeSend(tg, chatId, formatLeft());
       return;
 
     case "budget":
+      if (!(await requireOwner(tg, user))) return;
       await handleBudget(tg, repo, user, cmd);
       return;
 
     case "budget_done":
+      if (!(await requireOwner(tg, user))) return;
       await handleBudgetDone(tg, repo, user, cmd);
       return;
 
     case "budget_cancel":
+      if (!(await requireOwner(tg, user))) return;
       await repo.cancelBudget();
       await safeSend(tg, chatId, formatBudgetCancel());
       return;
 
     case "budget_undo": {
+      if (!(await requireOwner(tg, user))) return;
       const removed = await repo.removeLastConversion();
       const state = await repo.getBotState();
       const remaining =
@@ -285,7 +307,7 @@ export async function dispatchCallback(
   parsed: ParsedCallback,
 ): Promise<void> {
   if (cbq.message === undefined) {
-    log("warn", "callback_missing_message", { id: cbq.id });
+    log("warn", "callback_missing_message");
     if (cbq.id) await tg.answerCallbackQuery(cbq.id);
     return;
   }
@@ -297,15 +319,19 @@ export async function dispatchCallback(
     const owner = await repo.getOwner();
     const role = owner === null ? "owner" : "member";
     user = await repo.addUser({ chat_id: chatId, role, name: null });
-    log("info", "user_registered_via_callback", { chat_id: chatId, role });
+    log("info", "user_registered_via_callback", { role });
   }
 
   log("info", "callback", {
-    chat_id: chatId,
     kind: parsed.kind,
     pct: parsed.pct,
     dur: parsed.duration,
   });
+
+  if (parsed.kind === "alert_done_pct" && user.role !== "owner") {
+    if (cbq.id) await tg.answerCallbackQuery(cbq.id, "Только для владельца.");
+    return;
+  }
 
   const now = nowIso();
   const state = await repo.getBotState();
@@ -354,8 +380,18 @@ export async function dispatchCallback(
       if (cbq.id) await tg.answerCallbackQuery(cbq.id, "Лимит подписок исчерпан.");
       return;
     }
-    await repo.subscribeAndActivate(chatId, symbol, dir);
-    log("info", "subscribed_via_callback", { chat_id: chatId, symbol, direction: dir });
+    const subscribed = await repo.subscribeAndActivateWithinLimits(
+      chatId,
+      symbol,
+      dir,
+      MAX_SUBSCRIPTIONS_PER_USER,
+      MAX_ACTIVE_ASSETS_GLOBAL,
+    );
+    if (!subscribed) {
+      if (cbq.id) await tg.answerCallbackQuery(cbq.id, "Лимит подписок или активов исчерпан.");
+      return;
+    }
+    log("info", "subscribed_via_callback", { symbol, direction: dir });
     if (cbq.id) await tg.answerCallbackQuery(cbq.id, "✅ Подписан");
     await tg.editMessageReplyMarkup(chatId, messageId, null);
     await safeSend(tg, chatId, formatSubscribed(asset, dir));
@@ -512,11 +548,13 @@ async function handleStatus(
       return;
     }
     const state = await repo.getAssetState(symbol);
-    if (state === null || state.last_score_breakdown === null) {
+    const directions = await subscriptionDirections(repo, user.chat_id, symbol);
+    const views = directions.length > 0 ? directions : (["sell"] as const);
+    if (state === null || views.every((dir) => scoreBreakdownForDirection(state, dir) === null)) {
       await safeSend(tg, user.chat_id, formatStatusNoData(asset));
       return;
     }
-    await safeSend(tg, user.chat_id, formatStatus(state, user, TZ, asset));
+    await safeSend(tg, user.chat_id, formatDirectionalStatus(state, views, user, asset));
     return;
   }
   const subs = await repo.listUserSubscriptions(user.chat_id);
@@ -558,11 +596,13 @@ async function handleExplain(
       return;
     }
     const state = await repo.getAssetState(symbol);
-    if (state === null || state.last_score_breakdown === null) {
+    const directions = await subscriptionDirections(repo, user.chat_id, symbol);
+    const views = directions.length > 0 ? directions : (["sell"] as const);
+    if (state === null || views.every((dir) => scoreBreakdownForDirection(state, dir) === null)) {
       await safeSend(tg, user.chat_id, formatStatusNoData(asset));
       return;
     }
-    await safeSend(tg, user.chat_id, formatExplain(state, TZ, asset));
+    await safeSend(tg, user.chat_id, formatDirectionalExplain(state, views, asset));
     return;
   }
   // /explain без аргумента — primary EUR/USD legacy view + hint про SYMBOL.
@@ -648,9 +688,34 @@ async function handleSubscribe(
       await safeSend(tg, user.chat_id, formatAlreadySubscribed(asset, cmd.asset_direction));
       return;
     }
-    await repo.subscribeAndActivate(user.chat_id, asset.symbol, cmd.asset_direction);
+    const subscribed = await repo.subscribeAndActivateWithinLimits(
+      user.chat_id,
+      asset.symbol,
+      cmd.asset_direction,
+      MAX_SUBSCRIPTIONS_PER_USER,
+      MAX_ACTIVE_ASSETS_GLOBAL,
+    );
+    if (!subscribed) {
+      const activeAssets = await repo.listActiveAssets();
+      if (activeAssets.length >= MAX_ACTIVE_ASSETS_GLOBAL && !asset.active) {
+        await safeSend(
+          tg,
+          user.chat_id,
+          `Сейчас ${activeAssets.length} активов в работе — достигнут лимит free tier (${MAX_ACTIVE_ASSETS_GLOBAL}).`,
+        );
+      } else {
+        await safeSend(
+          tg,
+          user.chat_id,
+          formatSubscribeLimit(
+            await repo.countUserSubscriptions(user.chat_id),
+            MAX_SUBSCRIPTIONS_PER_USER,
+          ),
+        );
+      }
+      return;
+    }
     log("info", "subscribed", {
-      chat_id: user.chat_id,
       symbol: asset.symbol,
       direction: cmd.asset_direction,
     });
@@ -668,10 +733,50 @@ async function handleSubscribe(
   } catch (err) {
     if (err instanceof TelegramAuthError) throw err;
     log("error", "subscribe_prompt_failed", {
-      chat_id: user.chat_id,
-      error: String(err).slice(0, 200),
+      error_kind: errorKind(err),
     });
   }
+}
+
+async function subscriptionDirections(
+  repo: StateRepo,
+  chatId: number,
+  symbol: string,
+): Promise<Direction[]> {
+  return (await repo.listUserSubscriptions(chatId))
+    .filter((subscription) => subscription.symbol === symbol)
+    .map((subscription) => subscription.direction);
+}
+
+function directionTitle(direction: Direction): string {
+  return direction === "sell" ? "Продажа" : "Покупка";
+}
+
+function formatDirectionalStatus(
+  state: AssetState,
+  directions: readonly Direction[],
+  user: User,
+  asset: Asset,
+): string {
+  return directions
+    .map((direction) => {
+      const text = formatStatus(assetStateForDirection(state, direction), user, TZ, asset);
+      return directions.length === 1 ? text : `<b>${directionTitle(direction)}</b>\n${text}`;
+    })
+    .join("\n\n");
+}
+
+function formatDirectionalExplain(
+  state: AssetState,
+  directions: readonly Direction[],
+  asset: Asset,
+): string {
+  return directions
+    .map((direction) => {
+      const text = formatExplain(assetStateForDirection(state, direction), TZ, asset);
+      return directions.length === 1 ? text : `<b>${directionTitle(direction)}</b>\n${text}`;
+    })
+    .join("\n\n");
 }
 
 async function handleUnsubscribe(
@@ -705,7 +810,7 @@ async function handleUnsubscribe(
     removed = await repo.removeAllSubscriptionsForSymbol(user.chat_id, symbol);
   }
 
-  log("info", "unsubscribed", { chat_id: user.chat_id, symbol, removed });
+  log("info", "unsubscribed", { symbol, removed });
   if (asset) {
     await repo.deactivateAssetIfOrphan(symbol);
     await safeSend(tg, user.chat_id, formatUnsubscribed(asset, removed));

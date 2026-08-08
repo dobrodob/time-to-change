@@ -10,14 +10,13 @@
  */
 import type { ValidatedEnv } from "../env";
 import { StateRepo } from "../state/repo";
+import { errorKind, log } from "./log";
 
 export async function handleHealth(env: ValidatedEnv): Promise<Response> {
   try {
     const repo = new StateRepo(env.DB);
     const state = await repo.getBotState();
     const primary = await repo.getPrimaryAssetState();
-    const usersCount = await repo.countUsers();
-    const quotaTotal = await repo.getTotalAssetQuotaToday();
     const lastAnalyzeAt = primary?.last_score_breakdown?.ts ?? null;
     const now = new Date();
     const analyzeFreshnessSeconds =
@@ -27,15 +26,12 @@ export async function handleHealth(env: ValidatedEnv): Promise<Response> {
     return Response.json({
       ok: true,
       schema_version: state.schema_version,
-      last_update_id: state.last_update_id,
       last_analyze_at: lastAnalyzeAt,
       analyze_freshness_seconds: analyzeFreshnessSeconds,
-      last_digest_at: state.last_digest_at,
-      users_count: usersCount,
-      quota_credits_used_today: quotaTotal,
       ts: now.toISOString(),
     });
   } catch (err) {
-    return Response.json({ ok: false, error: String(err).slice(0, 300) }, { status: 500 });
+    log("error", "health_check_failed", { error_kind: errorKind(err) });
+    return Response.json({ ok: false, error: "health check failed" }, { status: 500 });
   }
 }

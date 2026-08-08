@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import sys
 
 from src.backtest.engine import run_backtest
@@ -22,12 +23,50 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("backtest")
 
 
-def main() -> int:
+def _bounded_int(value: str, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if not minimum <= parsed <= maximum:
+        raise argparse.ArgumentTypeError(f"must be between {minimum} and {maximum}")
+    return parsed
+
+
+def _bounded_float(value: str, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        raise argparse.ArgumentTypeError(f"must be between {minimum:g} and {maximum:g}")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="EUR/USD walk-forward backtest")
-    parser.add_argument("--months", type=int, default=12, help="мес часовой истории (max ~7 на запрос)")
-    parser.add_argument("--starting-eur", type=float, default=1000.0)
-    parser.add_argument("--min-edge-pct", type=float, default=None, help="override settings")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--months",
+        type=lambda value: _bounded_int(value, 1, 12),
+        default=12,
+        help="мес часовой истории (1-12)",
+    )
+    parser.add_argument(
+        "--starting-eur",
+        type=lambda value: _bounded_float(value, 0.01, 1_000_000_000),
+        default=1000.0,
+    )
+    parser.add_argument(
+        "--min-edge-pct",
+        type=lambda value: _bounded_float(value, -100, 100),
+        default=None,
+        help="override settings",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
 
     settings = get_settings()
     if not settings.twelvedata_api_key:

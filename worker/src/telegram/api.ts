@@ -17,9 +17,16 @@ export class TelegramAuthError extends Error {
 }
 
 export class TelegramBlockedError extends Error {
-  constructor(public chatId: number) {
-    super(`Bot blocked by ${chatId}`);
+  constructor() {
+    super("Bot was blocked by the recipient");
     this.name = "TelegramBlockedError";
+  }
+}
+
+export class TelegramNetworkError extends Error {
+  constructor() {
+    super("Telegram request failed");
+    this.name = "TelegramNetworkError";
   }
 }
 
@@ -43,10 +50,27 @@ export interface SendMessageOptions {
 }
 
 export class TelegramClient {
+  private static readonly TIMEOUT_MS = 8000;
+
   constructor(private readonly token: string) {}
 
   private url(method: string): string {
     return `https://api.telegram.org/bot${this.token}/${method}`;
+  }
+
+  private async post(method: string, body: Record<string, unknown>): Promise<Response> {
+    try {
+      return await fetch(this.url(method), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TelegramClient.TIMEOUT_MS),
+      });
+    } catch {
+      // A fetch error can contain the credential-bearing request URL. Replace it
+      // at the client boundary before upstream code can log the exception.
+      throw new TelegramNetworkError();
+    }
   }
 
   async sendMessage(
@@ -63,21 +87,14 @@ export class TelegramClient {
     if (opts.reply_markup) body.reply_markup = { inline_keyboard: opts.reply_markup };
     if (opts.disable_notification) body.disable_notification = true;
 
-    const res = await fetch(this.url("sendMessage"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await this.post("sendMessage", body);
     if (!res.ok) {
-      const errText = await res.text();
       log("error", "telegram_send_failed", {
-        chat_id: chatId,
         status: res.status,
-        body: errText.slice(0, 200),
       });
-      if (res.status === 401) throw new TelegramAuthError(errText);
-      if (res.status === 403) throw new TelegramBlockedError(chatId);
-      throw new Error(`Telegram sendMessage failed: ${res.status} ${errText.slice(0, 200)}`);
+      if (res.status === 401) throw new TelegramAuthError("Telegram authentication failed");
+      if (res.status === 403) throw new TelegramBlockedError();
+      throw new Error(`Telegram sendMessage failed with status ${res.status}`);
     }
     const data = (await res.json()) as { ok: boolean; result?: { message_id: number } };
     return data.result?.message_id ?? null;
@@ -93,14 +110,10 @@ export class TelegramClient {
       message_id: messageId,
       reply_markup: { inline_keyboard: inlineKeyboard ?? [] },
     };
-    const res = await fetch(this.url("editMessageReplyMarkup"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await this.post("editMessageReplyMarkup", body);
     if (!res.ok) {
       // 400 "message is not modified" — нормально при повторном клике.
-      log("warn", "telegram_edit_markup_failed", { chat_id: chatId, status: res.status });
+      log("warn", "telegram_edit_markup_failed", { status: res.status });
     }
   }
 
@@ -110,31 +123,22 @@ export class TelegramClient {
       body.text = text.slice(0, 200);
       body.show_alert = false;
     }
-    const res = await fetch(this.url("answerCallbackQuery"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await this.post("answerCallbackQuery", body);
     if (!res.ok) {
       log("warn", "telegram_callback_answer_failed", {
-        callback_id: callbackId,
         status: res.status,
       });
     }
   }
 
   async setMyCommands(commands: BotCommand[]): Promise<void> {
-    const res = await fetch(this.url("setMyCommands"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ commands }),
-    });
+    const res = await this.post("setMyCommands", { commands });
     if (!res.ok) {
-      const errText = await res.text();
       log("warn", "telegram_setmycommands_failed", {
         status: res.status,
-        body: errText.slice(0, 200),
       });
+      if (res.status === 401) throw new TelegramAuthError("Telegram authentication failed");
+      throw new Error(`Telegram setMyCommands failed with status ${res.status}`);
     }
   }
 }

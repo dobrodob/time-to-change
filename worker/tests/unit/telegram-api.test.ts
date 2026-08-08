@@ -54,6 +54,18 @@ describe("TelegramClient", () => {
     await expect(c.sendMessage(100, "x")).rejects.toThrow(TelegramBlockedError);
   });
 
+  it("sanitizes network failures so the token cannot reach upstream logs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("failed https://api.telegram.org/botsecret-token/sendMessage")),
+    );
+    const c = new TelegramClient("secret-token");
+    const error = await c.sendMessage(100, "x").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Telegram request failed");
+    expect((error as Error).message).not.toContain("secret-token");
+  });
+
   it("answerCallbackQuery sends to correct endpoint", async () => {
     const fetchMock = vi
       .fn()
@@ -75,5 +87,13 @@ describe("TelegramClient", () => {
     const c = new TelegramClient("tok");
     await c.setMyCommands([{ command: "start", description: "Начать" }]);
     expect(fetchMock.mock.calls[0][0]).toBe("https://api.telegram.org/bottok/setMyCommands");
+  });
+
+  it("setMyCommands fails instead of caching a rejected menu update", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("bad request", { status: 400 })));
+    const c = new TelegramClient("tok");
+    await expect(c.setMyCommands([{ command: "start", description: "Start" }])).rejects.toThrow(
+      "Telegram setMyCommands failed with status 400",
+    );
   });
 });

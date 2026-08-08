@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findBlackout, nextEventAfter, toBlackoutWindow } from "../../src/analyze/events-filter";
+import {
+  blackoutEventRange,
+  findBlackout,
+  nextEventAfter,
+  toBlackoutWindow,
+} from "../../src/analyze/events-filter";
 
 const fomc = { id: 1, ts: "2026-06-12T18:00:00Z", type: "FOMC", description: "Rate decision" };
 const ecb = { id: 2, ts: "2026-06-15T12:00:00Z", type: "ECB", description: null };
@@ -42,6 +47,16 @@ describe("findBlackout", () => {
   });
   it("boundary at blackout_start → in", () => {
     expect(findBlackout("2026-06-12T16:00:00Z", events)?.type).toBe("FOMC");
+  });
+});
+
+describe("blackoutEventRange", () => {
+  it("includes events whose post-event blackout is still active", () => {
+    const range = blackoutEventRange("2026-06-12T20:00:00Z");
+    expect(range.from).toBe("2026-06-12T16:00:00.000Z");
+    expect(range.to).toBe("2026-06-12T22:00:00.000Z");
+    expect(new Date(fomc.ts).getTime()).toBeGreaterThanOrEqual(new Date(range.from).getTime());
+    expect(findBlackout("2026-06-12T20:00:00Z", [fomc])?.type).toBe("FOMC");
   });
 });
 

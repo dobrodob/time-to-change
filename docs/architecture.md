@@ -93,14 +93,15 @@ D1 stores:
 
 - users and personal notification settings;
 - asset registry and user × asset × direction subscriptions;
-- per-asset baselines, score breakdown, quota, and directional cooldown state;
+- per-asset baselines, separate buy/sell score breakdowns, quota, and directional cooldown state;
 - append-only alert history;
 - the EUR/USD conversion budget and conversion records;
 - macro-event blackout entries.
 
-Multi-statement invariants use `D1Database.batch`. In particular, adding an
-alert and updating its cooldown state is atomic, as is subscription creation
-plus asset activation.
+Multi-statement invariants use `D1Database.batch`. Adding an alert and updating
+its cooldown state is atomic. Subscription creation enforces both per-user and
+global active-asset limits in the same transaction; orphan deactivation uses a
+single conditional statement.
 
 ## Verification strategy
 
@@ -116,7 +117,12 @@ plus asset activation.
 
 - Telegram webhook requests require a 32+ character secret header.
 - Runtime credentials are Worker secrets, never configuration-file values.
+- Members cannot read or mutate the owner's conversion budget or enumerate
+  other users; alert history is scoped to the requesting user's subscriptions.
+- Structured logs remove personal identifiers and raw upstream errors. The
+  public health response contains only liveness and analysis freshness.
 - The public project does not identify or link the maintainer's live bot.
-- D1 backup artifacts are encrypted before upload.
+- D1 backup artifacts are encrypted and verified by a decrypt/list round trip
+  before upload.
 - A public deployment needs an explicit access-control decision: the current
   application mode auto-registers users who reach the bot.

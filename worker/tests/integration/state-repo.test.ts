@@ -14,6 +14,7 @@ import migration0003Sql from "../../migrations/0003_multi_asset.sql?raw";
 import migration0004Sql from "../../migrations/0004_seed_eur_usd_and_subscriptions.sql?raw";
 import migration0005Sql from "../../migrations/0005_drop_deprecated_bot_state_columns.sql?raw";
 import migration0006Sql from "../../migrations/0006_reclass_metals_commodity.sql?raw";
+import migration0007Sql from "../../migrations/0007_directional_score_breakdowns.sql?raw";
 import { StateRepo } from "../../src/state/repo";
 
 /**
@@ -52,6 +53,7 @@ beforeAll(async () => {
   await applyMigration(migration0004Sql);
   await applyMigration(migration0005Sql);
   await applyMigration(migration0006Sql);
+  await applyMigration(migration0007Sql);
 });
 
 beforeEach(async () => {
@@ -120,6 +122,33 @@ describe("StateRepo / assets — inactive-on-create + subscribeAndActivate (orph
     await repo.removeSubscription(111, "XAG/USD", "sell");
     expect(await repo.deactivateAssetIfOrphan("XAG/USD")).toBe(true);
     expect(await repo.listActiveAssets()).toHaveLength(0);
+  });
+
+  it("enforces the global active-asset limit inside the subscription transaction", async () => {
+    const repo = new StateRepo(env.DB);
+    await repo.addUser({ chat_id: 111, role: "owner" });
+    await repo.upsertAsset({ ...metal, symbol: "XAU/USD" });
+    await repo.upsertAsset(metal);
+    await repo.subscribeAndActivate(111, "XAU/USD", "sell");
+
+    expect(await repo.subscribeAndActivateWithinLimits(111, "XAG/USD", "sell", 10, 1)).toBe(
+      false,
+    );
+    expect(await repo.getSubscription(111, "XAG/USD", "sell")).toBeNull();
+    expect((await repo.getAsset("XAG/USD"))?.active).toBe(false);
+  });
+
+  it("enforces the per-user limit inside the subscription transaction", async () => {
+    const repo = new StateRepo(env.DB);
+    await repo.addUser({ chat_id: 111, role: "owner" });
+    await repo.upsertAsset(metal);
+    expect(await repo.subscribeAndActivateWithinLimits(111, "XAG/USD", "sell", 1, 15)).toBe(
+      true,
+    );
+    expect(await repo.subscribeAndActivateWithinLimits(111, "XAG/USD", "buy", 1, 15)).toBe(
+      false,
+    );
+    expect(await repo.getSubscription(111, "XAG/USD", "buy")).toBeNull();
   });
 });
 
@@ -246,8 +275,8 @@ describe("StateRepo / bot_state singleton", () => {
   it("getBotState returns initialized row", async () => {
     const repo = new StateRepo(env.DB);
     const s = await repo.getBotState();
-    // Migration 0005 bumps schema_version 4 → 5 (deprecated columns dropped).
-    expect(s.schema_version).toBe(5);
+    // Migration 0007 adds independent buy/sell score snapshots.
+    expect(s.schema_version).toBe(6);
     expect(s.last_update_id).toBe(0);
     expect(s.budget_converted_eur).toBe(0);
   });
@@ -438,6 +467,29 @@ describe("StateRepo / asset_state (multi-asset)", () => {
     await repo.setAssetLastScoreBreakdown("EUR/USD", breakdown);
     const s = await repo.getAssetState("EUR/USD");
     expect(s?.last_score_breakdown).toEqual(breakdown);
+  });
+
+  it("stores buy and sell score snapshots independently", async () => {
+    const repo = new StateRepo(env.DB);
+    await seedAsset();
+    const common = {
+      ts: "2026-05-14T14:00:00Z",
+      regime: "partial",
+      rate: 1.18,
+      edge_pct: 2.5,
+      components: {},
+      notes: [],
+      was_alert: false,
+      gate_reason: "cooldown",
+    };
+    const sell = { ...common, score: 80 };
+    const buy = { ...common, score: 25 };
+    await repo.setAssetScoreBreakdowns("EUR/USD", { sell, buy });
+
+    const state = await repo.getAssetState("EUR/USD");
+    expect(state?.last_score_breakdown_sell).toEqual(sell);
+    expect(state?.last_score_breakdown_buy).toEqual(buy);
+    expect(state?.last_score_breakdown).toEqual(sell);
   });
 
   it("bumpAssetQuota + getTotalAssetQuotaToday — sum across assets", async () => {

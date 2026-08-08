@@ -65,7 +65,7 @@ interface YahooPayload {
 export function parseYahooChart(payload: unknown): Candle[] {
   const result = (payload as YahooPayload)?.chart?.result;
   if (!Array.isArray(result) || result.length === 0) {
-    throw new YahooError(`Empty/invalid Yahoo payload: ${JSON.stringify(payload).slice(0, 200)}`);
+    throw new YahooError("Empty or invalid Yahoo payload");
   }
   const r = result[0];
   const ts = r.timestamp;
@@ -81,8 +81,10 @@ export function parseYahooChart(payload: unknown): Candle[] {
     const close = q.close?.[i];
     if (open == null || high == null || low == null || close == null) continue;
     // finite-гард на ВСЕ четыре OHLC: NaN/Infinity в high/low отравил бы ATR.
-    if (![open, high, low, close].every((v) => Number.isFinite(v))) continue;
-    candles.push({ datetime: new Date(ts[i] * 1000).toISOString(), open, high, low, close });
+    if (![ts[i], open, high, low, close].every((v) => Number.isFinite(v))) continue;
+    const timestamp = new Date(ts[i] * 1000);
+    if (!Number.isFinite(timestamp.getTime())) continue;
+    candles.push({ datetime: timestamp.toISOString(), open, high, low, close });
   }
   // Ноль пригодных свечей (все точки null / пустой timestamp) — это сбой фида, а
   // не валидный «нет данных»: кидаем, чтобы analyze пометил asset_failed (видно в

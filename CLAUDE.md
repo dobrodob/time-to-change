@@ -21,7 +21,7 @@ implementation and walk-forward backtest. It is not the production bot.
 - `worker/migrations/` — D1 schema and data migrations.
 - `worker/tests/` — unit, parity, and Worker-runtime integration contracts.
 - `src/` + `tests/` — Python reference and backtest regression suite.
-- `README.md` / `README.en.md` — public product and self-hosting documentation.
+- `README.md` / `docs/README.ru.md` — English default and Russian self-hosting documentation.
 
 Do not infer current behavior from the disabled legacy Python workflows.
 

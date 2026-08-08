@@ -72,16 +72,19 @@ describe("evaluateFreshness", () => {
     expect(d.reason).toBe("market_closed");
   });
 
-  it("market open, state=null → no_alert / never_analyzed (первый запуск)", () => {
+  it("market open, old state=null → alert / never_analyzed", () => {
     const d = evaluateFreshness(makeForexAsset(), null, THU_14_UTC);
-    expect(d.alert).toBe(false);
+    expect(d.alert).toBe(true);
     expect(d.reason).toBe("never_analyzed");
+    expect(d.freshness_seconds).toBeGreaterThan(7200);
   });
 
-  it("market open, breakdown отсутствует → no_alert / never_analyzed", () => {
-    const d = evaluateFreshness(makeForexAsset(), makeAssetState(null), THU_14_UTC);
+  it("market open, newly added breakdown missing → grace period without alert", () => {
+    const recent = { ...makeForexAsset(), added_at: "2026-05-14T13:30:00Z" };
+    const d = evaluateFreshness(recent, makeAssetState(null), THU_14_UTC);
     expect(d.alert).toBe(false);
     expect(d.reason).toBe("never_analyzed");
+    expect(d.freshness_seconds).toBe(1800);
   });
 
   it("fresh (1 час назад, threshold 2h) → no_alert / fresh", () => {
@@ -151,7 +154,7 @@ describe("collectStaleAssets — мониторинг ВСЕХ активов, �
     };
   }
 
-  it("выбирает только протухшие active-активы (свежие / never_analyzed пропускает)", () => {
+  it("выбирает протухшие и давно never_analyzed active-активы", () => {
     const out = collectStaleAssets(
       [
         entry("EUR/USD", "forex", "2026-05-14T13:30:00Z"), // 30мин — свежо
@@ -160,7 +163,7 @@ describe("collectStaleAssets — мониторинг ВСЕХ активов, �
       ],
       THU_14_UTC,
     );
-    expect(out.map((s) => s.symbol)).toEqual(["XAU/USD"]);
+    expect(out.map((s) => s.symbol)).toEqual(["XAU/USD", "XAG/USD"]);
     expect(out[0].freshness_seconds).toBeGreaterThan(7200);
     expect(out[0].type).toBe("commodity");
   });

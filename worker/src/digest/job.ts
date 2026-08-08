@@ -11,10 +11,17 @@
 import type { Regime, ScoreBreakdown } from "../analyze/scoring";
 import { formatDigest, formatDigestMultiAssetSummary } from "../commands/formatter";
 import type { ValidatedEnv } from "../env";
-import { log } from "../lib/log";
+import { errorKind, log } from "../lib/log";
+import { budgetStateForRole } from "../lib/privacy";
 import { isInQuietWindow, madridHourFromUtc, nowIso } from "../lib/time";
 import { StateRepo } from "../state/repo";
-import type { Asset, AssetState, User } from "../state/schema";
+import {
+  scoreBreakdownForDirection,
+  type Asset,
+  type AssetState,
+  type LastScoreBreakdown,
+  type User,
+} from "../state/schema";
 import { TelegramAuthError, TelegramBlockedError, TelegramClient } from "../telegram/api";
 
 const TZ = "Europe/Madrid";
@@ -44,28 +51,7 @@ export async function runDigest(env: ValidatedEnv): Promise<void> {
     }
   }
 
-  // Build breakdown from asset_state.last_score_breakdown (post-migration
-  // источник истины — analyze/job.ts пишет туда per-asset). bot_state остаётся
-  // singleton для budget данных. См. plan shimmying-orbiting-deer.md.
   const assetState = await repo.getPrimaryAssetState();
-  let breakdown: ScoreBreakdown | null = null;
-  let edgePct: number | null = null;
-  let dailyEdgePct: number | null = null;
-  if (assetState?.last_score_breakdown != null) {
-    breakdown = {
-      score: assetState.last_score_breakdown.score,
-      regime: assetState.last_score_breakdown.regime as Regime,
-      rate: assetState.last_score_breakdown.rate,
-      components: assetState.last_score_breakdown.components,
-      notes: assetState.last_score_breakdown.notes,
-    };
-    edgePct = assetState.last_score_breakdown.edge_pct;
-    // null для legacy записей до feat/digest-daily-edge или для assets с <2 daily candles
-    dailyEdgePct = assetState.last_score_breakdown.daily_edge_pct ?? null;
-  }
-
-  // Базовый text без multi-asset summary — для юзеров без non-EUR/USD подписок.
-  const baseText = formatDigest(state, breakdown, edgePct, dailyEdgePct, now, TZ, null);
 
   const users = await repo.listUsers();
   const tg = new TelegramClient(env.TELEGRAM_BOT_TOKEN);
@@ -76,11 +62,8 @@ export async function runDigest(env: ValidatedEnv): Promise<void> {
       repo,
       user,
       state,
-      breakdown,
-      edgePct,
-      dailyEdgePct,
+      assetState,
       now,
-      baseText,
     );
     try {
       await tg.sendMessage(user.chat_id, text);
@@ -88,12 +71,11 @@ export async function runDigest(env: ValidatedEnv): Promise<void> {
     } catch (err) {
       if (err instanceof TelegramAuthError) throw err;
       if (err instanceof TelegramBlockedError) {
-        log("warn", "digest_blocked", { chat_id: user.chat_id });
+        log("warn", "digest_blocked");
         continue;
       }
       log("error", "digest_send_failed", {
-        chat_id: user.chat_id,
-        error: String(err).slice(0, 200),
+        error_kind: errorKind(err),
       });
     }
   }
@@ -110,15 +92,28 @@ async function buildDigestForUser(
   repo: StateRepo,
   user: User,
   state: import("../state/schema").BotState,
-  breakdown: ScoreBreakdown | null,
-  edgePct: number | null,
-  dailyEdgePct: number | null,
+  primaryState: AssetState | null,
   now: string,
-  baseText: string,
 ): Promise<string> {
   const subs = await repo.listUserSubscriptions(user.chat_id);
+  const primaryDirection =
+    subs.find((subscription) => subscription.symbol === "EUR/USD")?.direction ?? "sell";
+  const primary = scoreBreakdownForDirection(primaryState, primaryDirection);
+  const { breakdown, edgePct, dailyEdgePct } = digestScore(primary);
   const nonEurUsd = subs.filter((s) => s.symbol !== "EUR/USD");
-  if (nonEurUsd.length === 0) return baseText;
+  const visibleState = budgetStateForRole(state, user.role);
+  if (nonEurUsd.length === 0) {
+    return formatDigest(
+      visibleState,
+      breakdown,
+      edgePct,
+      dailyEdgePct,
+      now,
+      TZ,
+      null,
+      primaryDirection,
+    );
+  }
 
   const assets: Record<string, Asset> = {};
   const states: Record<string, AssetState | null> = {};
@@ -128,7 +123,35 @@ async function buildDigestForUser(
     states[s.symbol] = await repo.getAssetState(s.symbol);
   }
   const summary = formatDigestMultiAssetSummary(subs, assets, states, now);
-  return formatDigest(state, breakdown, edgePct, dailyEdgePct, now, TZ, summary);
+  return formatDigest(
+    visibleState,
+    breakdown,
+    edgePct,
+    dailyEdgePct,
+    now,
+    TZ,
+    summary,
+    primaryDirection,
+  );
+}
+
+function digestScore(last: LastScoreBreakdown | null): {
+  breakdown: ScoreBreakdown | null;
+  edgePct: number | null;
+  dailyEdgePct: number | null;
+} {
+  if (last === null) return { breakdown: null, edgePct: null, dailyEdgePct: null };
+  return {
+    breakdown: {
+      score: last.score,
+      regime: last.regime as Regime,
+      rate: last.rate,
+      components: last.components,
+      notes: last.notes,
+    },
+    edgePct: last.edge_pct,
+    dailyEdgePct: last.daily_edge_pct ?? null,
+  };
 }
 
 function isInDigestWindow(_now: string, madridHour: number): boolean {

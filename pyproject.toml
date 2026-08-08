@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "time-to-change"
 version = "0.1.0"
 description = "Self-hosted Telegram market-timing assistant for FX, stocks, crypto, and metals"
-readme = "README.en.md"
+readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [

@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { log } from "../../src/lib/log";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("log", () => {
   it("emits single JSON line with ts, level, op", () => {
@@ -15,13 +17,32 @@ describe("log", () => {
     spy.mockRestore();
   });
 
-  it("merges ctx into log entry", () => {
+  it("merges safe context and drops personal or raw-error fields", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-    log("error", "telegram_send_failed", { chat_id: 100, status: 403 });
+    log("error", "telegram_send_failed", {
+      chat_id: 100,
+      name: "Alice",
+      error: "request failed at https://example.test/?token=secret",
+      error_kind: "TypeError",
+      status: 403,
+    });
     const parsed = JSON.parse(spy.mock.calls[0][0] as string);
-    expect(parsed.chat_id).toBe(100);
+    expect(parsed.chat_id).toBeUndefined();
+    expect(parsed.name).toBeUndefined();
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.error_kind).toBe("TypeError");
     expect(parsed.status).toBe(403);
     expect(parsed.level).toBe("error");
+    spy.mockRestore();
+  });
+
+  it("does not let context spoof reserved fields", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    log("warn", "real_op", { level: "info", op: "spoofed", ts: "yesterday" });
+    const parsed = JSON.parse(spy.mock.calls[0][0] as string);
+    expect(parsed.level).toBe("warn");
+    expect(parsed.op).toBe("real_op");
+    expect(parsed.ts).not.toBe("yesterday");
     spy.mockRestore();
   });
 

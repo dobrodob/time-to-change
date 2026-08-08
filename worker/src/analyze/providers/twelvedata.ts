@@ -4,12 +4,13 @@
  * Refactored из старого analyze/twelvedata.ts → implements PriceProvider interface.
  * Free tier: 800 calls/day, 8/min.
  */
-import { log } from "../../lib/log";
+import { errorKind, log } from "../../lib/log";
 import type { AssetType } from "../../state/schema";
 import type { Candle } from "../scoring";
 import type { FetchResult, Interval, PriceProvider, ResolvedSymbol } from "./types";
 
 const BASE_URL = "https://api.twelvedata.com";
+const REQUEST_TIMEOUT_MS = 8000;
 
 export class TwelveDataError extends Error {
   constructor(message: string) {
@@ -62,7 +63,7 @@ export class TwelveDataProvider implements PriceProvider {
     const params = new URLSearchParams({ symbol, outputsize: "5" });
     const url = `${BASE_URL}/symbol_search?${params.toString()}`;
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (!res.ok) return null;
       const payload = (await res.json()) as SymbolSearchResult;
       const matches = payload.data ?? [];
@@ -72,12 +73,12 @@ export class TwelveDataProvider implements PriceProvider {
       if (!m) return null;
       return {
         symbol: m.symbol.toUpperCase(),
-        display_name: m.instrument_name,
+        display_name: m.instrument_name || m.symbol,
         type: classifyType(m.instrument_type),
         currency: resolveCurrency(m.currency, m.symbol),
       };
     } catch (err) {
-      log("warn", "twelvedata_resolve_failed", { symbol, error: String(err).slice(0, 200) });
+      log("warn", "twelvedata_resolve_failed", { symbol, error_kind: errorKind(err) });
       return null;
     }
   }
@@ -131,48 +132,63 @@ export async function fetchTimeSeries(
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (res.status === 429) throw new TwelveDataQuotaError("Rate limit (HTTP 429)");
-      if (!res.ok) throw new TwelveDataError(`HTTP ${res.status}: ${await res.text()}`);
+      if (!res.ok) throw new TwelveDataError(`HTTP ${res.status}`);
 
       const payload = (await res.json()) as TwelvePayload;
 
       if (payload.status === "error") {
         const code = payload.code;
-        const msg = payload.message ?? "unknown error";
         if (code === 429 || code === 401 || code === 402) {
-          throw new TwelveDataQuotaError(`API quota error ${code}: ${msg}`);
+          throw new TwelveDataQuotaError(`API quota error ${code ?? "unknown"}`);
         }
-        throw new TwelveDataError(`API error ${code}: ${msg}`);
+        throw new TwelveDataError(`API error ${code ?? "unknown"}`);
       }
       if (!Array.isArray(payload.values)) {
-        throw new TwelveDataError(`Unexpected payload: ${JSON.stringify(payload).slice(0, 200)}`);
+        throw new TwelveDataError("Unexpected payload");
       }
 
       const candles = parseValues(payload.values);
+      if (candles.length === 0) throw new TwelveDataError("No valid candles");
       const creditsUsed = creditsFromHeaders(res.headers, 1);
       return { candles, creditsUsed };
     } catch (err) {
       lastErr = err;
       if (err instanceof TwelveDataQuotaError) throw err;
-      log("warn", "twelvedata_attempt_failed", { attempt, error: String(err).slice(0, 200) });
+      log("warn", "twelvedata_attempt_failed", { attempt, error_kind: errorKind(err) });
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, delayMs));
         delayMs *= 2;
       }
     }
   }
-  throw new TwelveDataError(`All ${maxRetries} attempts failed: ${lastErr}`);
+  throw new TwelveDataError(
+    `All ${maxRetries} attempts failed (${errorKind(lastErr)})`,
+  );
 }
 
-function parseValues(values: TwelveValue[]): Candle[] {
-  const candles: Candle[] = values.map((v) => ({
-    datetime: v.datetime,
-    open: Number.parseFloat(v.open),
-    high: Number.parseFloat(v.high),
-    low: Number.parseFloat(v.low),
-    close: Number.parseFloat(v.close),
-  }));
+export function parseValues(values: TwelveValue[]): Candle[] {
+  const candles: Candle[] = [];
+  for (const value of values) {
+    const candle = {
+      datetime: value.datetime,
+      open: Number.parseFloat(value.open),
+      high: Number.parseFloat(value.high),
+      low: Number.parseFloat(value.low),
+      close: Number.parseFloat(value.close),
+    };
+    if (
+      value.datetime.length === 0 ||
+      !Number.isFinite(candle.open) ||
+      !Number.isFinite(candle.high) ||
+      !Number.isFinite(candle.low) ||
+      !Number.isFinite(candle.close)
+    ) {
+      continue;
+    }
+    candles.push(candle);
+  }
   candles.sort((a, b) => a.datetime.localeCompare(b.datetime));
   return candles;
 }

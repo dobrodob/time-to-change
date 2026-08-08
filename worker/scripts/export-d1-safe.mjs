@@ -35,6 +35,18 @@ const exportTasks = [
     args: ["d1", "execute", "euro-dollar-bot-state", "--remote", "--json", "--command", "SELECT * FROM events ORDER BY ts"],
     output: "/tmp/events.json",
   },
+  {
+    args: ["d1", "execute", "euro-dollar-bot-state", "--remote", "--json", "--command", "SELECT * FROM assets ORDER BY symbol"],
+    output: "/tmp/assets.json",
+  },
+  {
+    args: ["d1", "execute", "euro-dollar-bot-state", "--remote", "--json", "--command", "SELECT * FROM subscriptions ORDER BY chat_id, symbol, direction"],
+    output: "/tmp/subscriptions.json",
+  },
+  {
+    args: ["d1", "execute", "euro-dollar-bot-state", "--remote", "--json", "--command", "SELECT * FROM asset_state ORDER BY symbol"],
+    output: "/tmp/asset_state.json",
+  },
 ];
 
 function runExport({ args, output }) {

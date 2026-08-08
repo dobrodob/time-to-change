@@ -15,6 +15,9 @@ const DEFAULT_WINDOWS_MIN: Record<string, [number, number]> = {
   OTHER: [30, 60],
 };
 
+const MAX_BEFORE_MIN = Math.max(...Object.values(DEFAULT_WINDOWS_MIN).map(([before]) => before));
+const MAX_AFTER_MIN = Math.max(...Object.values(DEFAULT_WINDOWS_MIN).map(([, after]) => after));
+
 export interface BlackoutWindow {
   type: string;
   title: string;
@@ -52,6 +55,15 @@ export function findBlackout(whenIso: string, events: DbEvent[]): BlackoutWindow
     if (when >= start && when <= end) return win;
   }
   return null;
+}
+
+/** Minimal event timestamp range that can contain a blackout covering `whenIso`. */
+export function blackoutEventRange(whenIso: string): { from: string; to: string } {
+  const when = new Date(whenIso).getTime();
+  return {
+    from: new Date(when - MAX_AFTER_MIN * 60_000).toISOString(),
+    to: new Date(when + MAX_BEFORE_MIN * 60_000).toISOString(),
+  };
 }
 
 /** Ближайшее событие после `whenIso` (с учётом blackout_start), или null. */

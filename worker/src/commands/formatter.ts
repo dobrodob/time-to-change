@@ -15,6 +15,7 @@ import type {
   Subscription,
   User,
 } from "../state/schema";
+import { scoreBreakdownForDirection } from "../state/schema";
 /**
  * Форматирование Telegram-сообщений (HTML parse_mode).
  * Port of src/alerts/formatter.py — 30+ функций для всех команд + alerts + digest.
@@ -36,8 +37,8 @@ export const TELEGRAM_MENU_COMMANDS: BotCommand[] = [
   { command: "status", description: "Резонность: /status (все) или /status SYMBOL" },
   { command: "explain", description: "Детали оценки: /explain или /explain SYMBOL" },
   { command: "history", description: "Последние 10 алертов" },
-  { command: "budget", description: "Бюджет (только EUR/USD): /budget 6000 30d" },
-  { command: "undo", description: "Отменить последнюю запись обмена" },
+  { command: "budget", description: "Бюджет владельца (EUR/USD): /budget 6000 30d" },
+  { command: "undo", description: "Владелец: отменить последнюю запись обмена" },
   { command: "silence", description: "Заглушить (по умолч 7d)" },
   { command: "resume", description: "Включить уведомления" },
   { command: "quiet", description: "Тихие часы: /quiet 23 7" },
@@ -65,6 +66,16 @@ const REGIME_DEFAULT_PCT: Record<Regime, number> = {
   partial: 30,
   strong: 50,
 };
+
+/** Escape untrusted/provider-controlled text before using Telegram HTML mode. */
+export function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 const PRESSURE_RU: Record<string, string> = {
   ahead: "опережаешь график",
@@ -210,7 +221,9 @@ export function formatStatus(
   asset: Asset | null = null,
 ): string {
   const last = assetState?.last_score_breakdown ?? null;
-  const header = asset ? `<b>${asset.display_name} (${asset.symbol})</b>` : "<b>Курс EUR/USD</b>";
+  const header = asset
+    ? `<b>${escapeHtml(asset.display_name)} (${escapeHtml(asset.symbol)})</b>`
+    : "<b>Курс EUR/USD</b>";
   const lines: string[] = [header, ""];
 
   if (last !== null) {
@@ -232,7 +245,7 @@ export function formatStatus(
   if (last !== null) {
     const edgeSign = last.edge_pct >= 0 ? "+" : "";
     lines.push(`Edge: <b>${edgeSign}${last.edge_pct.toFixed(2)}%</b>`);
-    const regimeRu = REGIME_LABEL[last.regime as Regime] ?? last.regime;
+    const regimeRu = escapeHtml(REGIME_LABEL[last.regime as Regime] ?? last.regime);
     lines.push("");
     lines.push(`Резонность: <b>${last.score.toFixed(0)}/100</b> — ${regimeRu}`);
   }
@@ -271,23 +284,27 @@ export function formatStatusOverview(
     if (!asset) {
       // Orphan subscription — asset был deactivated/удалён. Не молчим, иначе
       // юзер не поймёт почему его подписка не в списке.
-      lines.push(`⚠️ <b>${s.symbol}</b> — ассет снят с анализа (отпишись через /unsubscribe)`);
+      lines.push(
+        `⚠️ <b>${escapeHtml(s.symbol)}</b> — ассет снят с анализа (отпишись через /unsubscribe)`,
+      );
       continue;
     }
     const state = states[s.symbol] ?? null;
-    const last = state?.last_score_breakdown ?? null;
+    const last = scoreBreakdownForDirection(state, s.direction);
     const typeEmoji = TYPE_EMOJI[asset.type] ?? "•";
     const dirEmoji = DIR_EMOJI[s.direction];
     if (last === null) {
       lines.push(
-        `${typeEmoji} <b>${asset.symbol}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]} · нет данных`,
+        `${typeEmoji} <b>${escapeHtml(asset.symbol)}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]} · нет данных`,
       );
       continue;
     }
     const price = formatPrice(last.rate, asset.currency);
-    const regime = REGIME_LABEL[last.regime as Regime] ?? last.regime;
+    const regime = escapeHtml(REGIME_LABEL[last.regime as Regime] ?? last.regime);
     const edgeSign = last.edge_pct >= 0 ? "+" : "";
-    lines.push(`${typeEmoji} <b>${asset.symbol}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]}`);
+    lines.push(
+      `${typeEmoji} <b>${escapeHtml(asset.symbol)}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]}`,
+    );
     lines.push(
       `   ${price} · <b>${last.score.toFixed(0)}/100</b> ${regime} · edge ${edgeSign}${last.edge_pct.toFixed(2)}%`,
     );
@@ -304,17 +321,19 @@ export function formatStatusOverview(
 
 /** Сообщение когда юзер сделал /status SYMBOL для символа, на который не подписан. */
 export function formatStatusNotSubscribed(symbol: string): string {
-  return `<code>${symbol}</code> пока не в реестре ассетов.\n\nВозможны варианты:\n• Опечатка — посмотри список своих подписок через /assets\n• Хочешь подписаться: <code>/subscribe ${symbol}</code>\n  (после первого analyze, в течение часа, появятся данные)`;
+  const safeSymbol = escapeHtml(symbol);
+  return `<code>${safeSymbol}</code> пока не в реестре ассетов.\n\nВозможны варианты:\n• Опечатка — посмотри список своих подписок через /assets\n• Хочешь подписаться: <code>/subscribe ${safeSymbol}</code>\n  (после первого analyze, в течение часа, появятся данные)`;
 }
 
 /** Сообщение когда asset помечен active=false (снят с анализа). */
 export function formatStatusAssetInactive(asset: Asset): string {
-  return `<b>${asset.display_name} (${asset.symbol})</b>\n\n⏸ Этот ассет временно снят с анализа (никто на него не подписан).\nЕсли хочешь возобновить — <code>/subscribe ${asset.symbol}</code>.`;
+  const symbol = escapeHtml(asset.symbol);
+  return `<b>${escapeHtml(asset.display_name)} (${symbol})</b>\n\n⏸ Этот ассет временно снят с анализа (никто на него не подписан).\nЕсли хочешь возобновить — <code>/subscribe ${symbol}</code>.`;
 }
 
 /** Сообщение когда есть asset в registry но ещё нет analyze data. */
 export function formatStatusNoData(asset: Asset): string {
-  return `<b>${asset.display_name} (${asset.symbol})</b>\n\nСвежие данные ещё не загружены — analyze запускается раз в час.\nЗайди через ~час или подожди ближайшего alert.`;
+  return `<b>${escapeHtml(asset.display_name)} (${escapeHtml(asset.symbol)})</b>\n\nСвежие данные ещё не загружены — analyze запускается раз в час.\nЗайди через ~час или подожди ближайшего alert.`;
 }
 
 // ============ /alert ============
@@ -340,7 +359,9 @@ function formatPrice(rate: number, currency: string): string {
   // USD/JPY и подобные JPY-кроссы (rate ~110) попадут в 2 знака — acceptable
   // для отображения (precision потеря не критична).
   const decimals = Math.abs(rate) < 10 ? 5 : 2;
-  return symbol ? `${symbol}${rate.toFixed(decimals)}` : `${rate.toFixed(decimals)} ${currency}`;
+  return symbol
+    ? `${symbol}${rate.toFixed(decimals)}`
+    : `${rate.toFixed(decimals)} ${escapeHtml(currency)}`;
 }
 
 export function formatAlert(
@@ -354,7 +375,7 @@ export function formatAlert(
   const regime = breakdown.regime;
   const emoji = REGIME_EMOJI[regime];
   const when = formatLocal(nowIso, tzName);
-  const notesLines = breakdown.notes.map((n) => `• ${n}`).join("\n");
+  const notesLines = breakdown.notes.map((n) => `• ${escapeHtml(n)}`).join("\n");
   const edgeSign = edgePct >= 0 ? "+" : "";
 
   // Header: для legacy EUR/USD без ctx сохраняем старую формулировку; иначе
@@ -363,7 +384,7 @@ export function formatAlert(
   let recommendationText: string | null = null;
   if (ctx) {
     const verb = ctx.direction === "sell" ? "продать" : "купить";
-    header = `${emoji} <b>${ctx.asset.display_name} (${ctx.asset.symbol}) — окно для ${ctx.direction === "sell" ? "продажи" : "покупки"}</b>`;
+    header = `${emoji} <b>${escapeHtml(ctx.asset.display_name)} (${escapeHtml(ctx.asset.symbol)}) — окно для ${ctx.direction === "sell" ? "продажи" : "покупки"}</b>`;
     if (ctx.direction === "sell") {
       const recPct = REGIME_DEFAULT_PCT[regime];
       if (recPct > 0) {
@@ -424,6 +445,7 @@ export function alertInlineKeyboard(
   state: BotState,
   nowIso: string,
   ctx?: AlertContext,
+  options: { includeConversionActions?: boolean } = {},
 ): InlineKeyboard {
   const pacing = computePacing(state, nowIso);
   let primaryPct: number;
@@ -436,8 +458,8 @@ export function alertInlineKeyboard(
     secondaryPct = Math.max(20, primaryPct - 20);
   }
 
-  // Для не-EUR/USD assets кнопки done не имеют смысла (нет budget) — только silence.
-  if (ctx && ctx.asset.symbol !== "EUR/USD") {
+  // Для member-аудитории и не-EUR/USD assets кнопки done не имеют смысла.
+  if (options.includeConversionActions === false || (ctx && ctx.asset.symbol !== "EUR/USD")) {
     return [
       [
         { text: "Заглушить 1d", callback_data: "b:sil:1d" },
@@ -504,7 +526,7 @@ export function formatSubscribePrompt(asset: Asset, currentPrice: number | null)
   const typeEmoji = TYPE_EMOJI[asset.type] ?? "•";
   const priceLine =
     currentPrice !== null ? `\nТекущая цена: ${formatPrice(currentPrice, asset.currency)}` : "";
-  return `${typeEmoji} <b>${asset.display_name}</b> (${asset.symbol})\n${typeLabel} · валюта ${asset.currency}${priceLine}\n\nНа что подписать?`;
+  return `${typeEmoji} <b>${escapeHtml(asset.display_name)}</b> (${escapeHtml(asset.symbol)})\n${typeLabel} · валюта ${escapeHtml(asset.currency)}${priceLine}\n\nНа что подписать?`;
 }
 
 export function subscribePromptKeyboard(symbol: string): InlineKeyboard {
@@ -519,17 +541,17 @@ export function subscribePromptKeyboard(symbol: string): InlineKeyboard {
 export function formatSubscribed(asset: Asset, dir: Direction): string {
   const verb = dir === "sell" ? "когда цена близка к пику" : "когда цена близка к дну";
   return (
-    `✅ Подписан на ${asset.display_name} (${asset.symbol}) — ${DIR_LABEL[dir]}.\n` +
+    `✅ Подписан на ${escapeHtml(asset.display_name)} (${escapeHtml(asset.symbol)}) — ${DIR_LABEL[dir]}.\n` +
     `Алерт придёт ${verb} (score ≥75) — но не чаще раза в 24 часа.`
   );
 }
 
 export function formatAlreadySubscribed(asset: Asset, dir: Direction): string {
-  return `Уже подписан на ${asset.symbol} ${DIR_LABEL[dir]}. /assets — список подписок.`;
+  return `Уже подписан на ${escapeHtml(asset.symbol)} ${DIR_LABEL[dir]}. /assets — список подписок.`;
 }
 
 export function formatSubscribeNotFound(symbol: string): string {
-  return `Символ <code>${symbol}</code> не найден ни у TwelveData, ни у MOEX.\n\n<b>Примеры подписок:</b>\n• Forex: <code>/subscribe EUR/USD</code>, <code>/subscribe GBP/USD</code>\n• Commodity: <code>/subscribe XAU/USD</code> (золото), <code>/subscribe XAG/USD</code> (серебро)\n• US-акции: <code>/subscribe AAPL</code>, <code>/subscribe TSLA</code>, <code>/subscribe NVDA</code>\n• RU-акции: <code>/subscribe LKOH</code>, <code>/subscribe GAZP</code>, <code>/subscribe SBER</code>\n• Crypto: <code>/subscribe BTC/USD</code>, <code>/subscribe ETH/USD</code>`;
+  return `Символ <code>${escapeHtml(symbol)}</code> не найден ни у TwelveData, ни у MOEX.\n\n<b>Примеры подписок:</b>\n• Forex: <code>/subscribe EUR/USD</code>, <code>/subscribe GBP/USD</code>\n• Commodity: <code>/subscribe XAU/USD</code> (золото), <code>/subscribe XAG/USD</code> (серебро)\n• US-акции: <code>/subscribe AAPL</code>, <code>/subscribe TSLA</code>, <code>/subscribe NVDA</code>\n• RU-акции: <code>/subscribe LKOH</code>, <code>/subscribe GAZP</code>, <code>/subscribe SBER</code>\n• Crypto: <code>/subscribe BTC/USD</code>, <code>/subscribe ETH/USD</code>`;
 }
 
 export function formatSubscribeLimit(currentCount: number, maxCount: number): string {
@@ -538,9 +560,9 @@ export function formatSubscribeLimit(currentCount: number, maxCount: number): st
 
 export function formatUnsubscribed(asset: Asset, removed: number): string {
   if (removed === 0) {
-    return `Не был подписан на ${asset.symbol}.`;
+    return `Не был подписан на ${escapeHtml(asset.symbol)}.`;
   }
-  return `❎ Отписан от ${asset.display_name} (${asset.symbol}).`;
+  return `❎ Отписан от ${escapeHtml(asset.display_name)} (${escapeHtml(asset.symbol)}).`;
 }
 
 /**
@@ -566,14 +588,15 @@ export function formatUserAssets(
     const asset = assets[s.symbol];
     if (!asset) continue;
     const state = states[s.symbol] ?? null;
-    const last = state?.last_score_breakdown ?? null;
+    const last = scoreBreakdownForDirection(state, s.direction);
     const typeEmoji = TYPE_EMOJI[asset.type] ?? "•";
     const dirEmoji = DIR_EMOJI[s.direction];
     const price = last !== null ? formatPrice(last.rate, asset.currency) : "—";
     const score = last !== null ? `${last.score.toFixed(0)}/100` : "—";
-    const regime = last !== null ? (REGIME_LABEL[last.regime as Regime] ?? last.regime) : "—";
+    const regime =
+      last !== null ? escapeHtml(REGIME_LABEL[last.regime as Regime] ?? last.regime) : "—";
     lines.push(
-      `${typeEmoji} <b>${asset.symbol}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]} · ${price} · ${score} (${regime})`,
+      `${typeEmoji} <b>${escapeHtml(asset.symbol)}</b> · ${dirEmoji} ${DIR_LABEL[s.direction]} · ${price} · ${score} (${regime})`,
     );
   }
   lines.push("");
@@ -608,11 +631,11 @@ export function formatExplain(
     ["historical", `Историка (${histWindow}d)`, weights.historical],
   ];
   const when = formatLocal(last.ts, tzName);
-  const regimeRu = REGIME_LABEL[last.regime as Regime] ?? last.regime;
+  const regimeRu = escapeHtml(REGIME_LABEL[last.regime as Regime] ?? last.regime);
   const edgeSign = last.edge_pct >= 0 ? "+" : "";
   const priceStr = asset ? formatPrice(last.rate, asset.currency) : last.rate.toFixed(5);
   const header = asset
-    ? `<b>Из чего оценка ${asset.symbol}</b> — ${when}`
+    ? `<b>Из чего оценка ${escapeHtml(asset.symbol)}</b> — ${when}`
     : `<b>Из чего сейчас оценка</b> — ${when}`;
 
   const lines = [
@@ -640,11 +663,11 @@ export function formatExplain(
   if (last.notes.length > 0) {
     lines.push("");
     lines.push("<b>Что повлияло:</b>");
-    for (const n of last.notes) lines.push(`• ${n}`);
+    for (const n of last.notes) lines.push(`• ${escapeHtml(n)}`);
   }
   if (!last.was_alert && last.gate_reason) {
     lines.push("");
-    lines.push(`<i>Алерт не отправлен: ${last.gate_reason}</i>`);
+    lines.push(`<i>Алерт не отправлен: ${escapeHtml(last.gate_reason)}</i>`);
   }
 
   return lines.join("\n");
@@ -660,13 +683,18 @@ export function formatDigest(
   nowIso: string,
   tzName = "Europe/Madrid",
   multiAssetSummary: string | null = null,
+  primaryDirection: Direction | null = null,
 ): string {
   const when = formatLocal(nowIso, tzName);
   const lines = [`☕ <b>Утро, ${when}</b>`, ""];
 
   if (breakdown !== null) {
     const regimeRu = REGIME_LABEL[breakdown.regime];
-    lines.push(`Курс EUR/USD: <b>${breakdown.rate.toFixed(5)}</b>`);
+    const directionLabel =
+      primaryDirection === null
+        ? ""
+        : ` · ${DIR_EMOJI[primaryDirection]} ${DIR_LABEL[primaryDirection]}`;
+    lines.push(`Курс EUR/USD${directionLabel}: <b>${breakdown.rate.toFixed(5)}</b>`);
     if (dailyEdgePct !== null) {
       const sign = dailyEdgePct >= 0 ? "+" : "";
       lines.push(`Edge за день: <b>${sign}${dailyEdgePct.toFixed(2)}%</b>`);
@@ -727,25 +755,25 @@ export function formatDigestMultiAssetSummary(
   for (const s of nonEurUsd) {
     const asset = assets[s.symbol];
     if (!asset) {
-      lines.push(`⚠️ ${s.symbol} — снят с анализа`);
+      lines.push(`⚠️ ${escapeHtml(s.symbol)} — снят с анализа`);
       continue;
     }
     const state = states[s.symbol] ?? null;
-    const last = state?.last_score_breakdown ?? null;
+    const last = scoreBreakdownForDirection(state, s.direction);
     const typeEmoji = TYPE_EMOJI[asset.type] ?? "•";
     const dirEmoji = DIR_EMOJI[s.direction];
     if (last === null) {
-      lines.push(`${typeEmoji} ${asset.symbol} · ${dirEmoji} — нет данных`);
+      lines.push(`${typeEmoji} ${escapeHtml(asset.symbol)} · ${dirEmoji} — нет данных`);
       continue;
     }
     if (isStaleDuringMarket(last.ts, asset.type, now)) {
-      lines.push(`${typeEmoji} ${asset.symbol} · ${dirEmoji} — нет свежих данных`);
+      lines.push(`${typeEmoji} ${escapeHtml(asset.symbol)} · ${dirEmoji} — нет свежих данных`);
       continue;
     }
     const price = formatPrice(last.rate, asset.currency);
-    const regime = REGIME_LABEL[last.regime as Regime] ?? last.regime;
+    const regime = escapeHtml(REGIME_LABEL[last.regime as Regime] ?? last.regime);
     lines.push(
-      `${typeEmoji} <b>${asset.symbol}</b> · ${dirEmoji} ${price} · ${last.score.toFixed(0)}/100 (${regime})`,
+      `${typeEmoji} <b>${escapeHtml(asset.symbol)}</b> · ${dirEmoji} ${price} · ${last.score.toFixed(0)}/100 (${regime})`,
     );
   }
   return lines.join("\n");
@@ -775,11 +803,11 @@ export function formatHistory(
   const word = pluralAlerts(alerts.length);
   const lines = [`<b>Последние ${alerts.length} ${word}</b>`, ""];
   for (const a of alerts) {
-    const regimeRu = REGIME_LABEL[a.regime as Regime] ?? a.regime;
+    const regimeRu = escapeHtml(REGIME_LABEL[a.regime as Regime] ?? a.regime);
     const emoji = REGIME_EMOJI[a.regime as Regime] ?? "•";
     const edgeSign = a.edge_pct >= 0 ? "+" : "";
     // Multi-asset alerts (post-12.05) имеют symbol; legacy EUR/USD до cut-over — нет.
-    const symbolPart = a.symbol ? ` ${a.symbol}` : "";
+    const symbolPart = a.symbol ? ` ${escapeHtml(a.symbol)}` : "";
     const dirPart = a.direction ? ` ${DIR_EMOJI[a.direction]}` : "";
     // Rate formatting: forex (rate<10) — 5 знаков, остальное 2.
     const rateStr = Math.abs(a.rate) < 10 ? a.rate.toFixed(5) : a.rate.toFixed(2);
@@ -800,45 +828,44 @@ function pluralAlerts(n: number): string {
 
 // ============ Help / system ============
 
-export function formatHelp(_role: "owner" | "member" = "owner"): string {
-  // Open access: одинаковый help для всех (role kept в signature для backward compat).
-  return (
-    "<b>Команды</b>\n" +
-    "\n" +
-    "<b>Подписки на активы</b>\n" +
-    "/subscribe SYMBOL — подписаться (forex, акции, crypto, commodity)\n" +
-    "  • Forex: EUR/USD, GBP/USD\n" +
-    "  • US-акции: AAPL, TSLA, NVDA\n" +
-    "  • RU-акции: LKOH, GAZP, SBER\n" +
-    "  • Crypto: BTC/USD, ETH/USD\n" +
-    "  • Commodity: XAU/USD (золото), XAG/USD (серебро)\n" +
-    "/unsubscribe SYMBOL — отписаться\n" +
-    "/assets — мои подписки одним списком\n" +
-    "\n" +
-    "<b>Анализ</b>\n" +
-    "/status — обзор всех подписок (price/score/regime/edge)\n" +
-    "/status SYMBOL — детально по одной подписке\n" +
-    "/explain — детальная разбивка оценки\n" +
-    "/explain SYMBOL — разбивка по конкретному ассету\n" +
-    "/history — последние 10 алертов\n" +
-    "\n" +
-    "<b>Бюджет (для EUR/USD)</b>\n" +
-    "/budget 6000 30d — поставить цель\n" +
-    "/budget done 1500 1.0852 — записать обмен\n" +
-    "/budget — показать прогресс\n" +
-    "/undo — отменить последнюю запись\n" +
-    "/budget cancel — снять\n" +
-    "\n" +
-    "<b>Уведомления</b>\n" +
-    "/silence [период] — заглушить (1h, 3d, 2w; по умолч 7d)\n" +
-    "/resume — снять silence\n" +
-    "/quiet 23 7 — тихие часы\n" +
-    "/digest on|off — утренний дайджест\n" +
-    "\n" +
-    "<b>Аккаунт</b>\n" +
-    "/leave — удалить себя из бота\n" +
-    "/users — кто пользуется ботом\n"
-  );
+export function formatHelp(role: "owner" | "member" = "owner"): string {
+  const common = `<b>Команды</b>
+
+<b>Подписки на активы</b>
+/subscribe SYMBOL — подписаться (forex, акции, crypto, commodity)
+  • Forex: EUR/USD, GBP/USD
+  • US-акции: AAPL, TSLA, NVDA
+  • RU-акции: LKOH, GAZP, SBER
+  • Crypto: BTC/USD, ETH/USD
+  • Commodity: XAU/USD (золото), XAG/USD (серебро)
+/unsubscribe SYMBOL — отписаться
+/assets — мои подписки одним списком
+
+<b>Анализ</b>
+/status — обзор всех подписок (price/score/regime/edge)
+/status SYMBOL — детально по одной подписке
+/explain — детальная разбивка оценки
+/explain SYMBOL — разбивка по конкретному ассету
+/history — последние 10 алертов по твоим подпискам
+
+<b>Уведомления</b>
+/silence [период] — заглушить (1h, 3d, 2w; по умолч 7d)
+/resume — снять silence
+/quiet 23 7 — тихие часы
+/digest on|off — утренний дайджест
+
+<b>Аккаунт</b>
+/leave — ${role === "owner" ? "недоступно владельцу" : "удалить себя из бота"}
+`;
+  if (role !== "owner") return common;
+  return `${common}\n<b>Владелец · бюджет EUR/USD</b>
+/budget 6000 30d — поставить цель
+/budget done 1500 1.0852 — записать обмен
+/budget — показать прогресс
+/undo — отменить последнюю запись
+/budget cancel — снять
+/users — кто пользуется ботом
+`;
 }
 
 export function formatSilenceSet(untilIso: string, tzName = "Europe/Madrid"): string {
@@ -883,7 +910,7 @@ export function formatInviteAlreadyMember(chatId: number): string {
 }
 
 export function formatInviteNotify(ownerName: string | null): string {
-  const by = ownerName ? ` от ${ownerName}` : "";
+  const by = ownerName ? ` от ${escapeHtml(ownerName)}` : "";
   return `✅ Тебя добавили в EUR/USD bot${by}.\nАлерты будут приходить автоматически.\n\n/help — список команд.`;
 }
 
@@ -896,7 +923,7 @@ export function formatUsersList(users: User[]): string {
   const lines = ["<b>Подписаны:</b>", ""];
   for (const u of users) {
     const marker = u.role === "owner" ? "👑" : "👤";
-    const name = u.name ?? `chat_id ${u.chat_id}`;
+    const name = u.name ? escapeHtml(u.name) : `chat_id ${u.chat_id}`;
     let flags = "";
     if (u.silence_active) flags += " 🔇";
     if (u.quiet_enabled) flags += " 🌙";
@@ -911,6 +938,10 @@ export function formatLeft(): string {
 
 export function formatOwnerOnly(): string {
   return "Эта команда только для владельца.";
+}
+
+export function formatOwnerCannotLeave(): string {
+  return "Владелец не может удалить себя командой /leave — иначе управление экземпляром останется без владельца.";
 }
 
 // ============ Budget messages ============
