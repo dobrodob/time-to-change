@@ -17,7 +17,7 @@
     "d1:migrations:apply": "wrangler d1 migrations apply euro-dollar-bot-state --remote"
   },
   "dependencies": {
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
