@@ -2,9 +2,7 @@
 
 ![Time to Change — explainable market timing in Telegram](./docs/assets/time-to-change-hero.svg)
 
-### Не угадывает цену. Помогает понять, насколько сейчас разумный момент действовать.
-
-[Русский](./README.md) · [English](./README.en.md)
+### It does not guess the price. It helps you decide whether now is a reasonable time to act.
 
 [![CI](https://github.com/dobrodob/time-to-change/actions/workflows/ci.yml/badge.svg)](https://github.com/dobrodob/time-to-change/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
@@ -14,93 +12,93 @@
 
 </div>
 
-## Что это
+## What it is
 
-**Time to Change** — self-hosted Telegram-ассистент для выбора момента покупки или продажи валют, акций, криптовалют и драгоценных металлов.
+**Time to Change** is a self-hosted Telegram assistant for timing purchases and sales across currencies, stocks, cryptocurrencies, and precious metals.
 
-Обычный price bot отвечает на вопрос «сколько стоит актив?». Этот проект решает более полезную задачу: берёт дневные и часовые свечи, объяснимо оценивает рыночную ситуацию по шкале 0–100 и присылает сигнал только тогда, когда несколько независимых условий сходятся одновременно.
+A regular price bot answers “how much is this asset worth?” This project tackles the more useful question: “how reasonable is it to act now?” It combines daily and hourly candles, produces an explainable 0–100 score, and sends a signal only when several independent conditions line up.
 
-Это не торговый робот: он не подключается к брокеру, не совершает сделок и не обещает предсказывать рынок. Это персональный инструмент поддержки решений — с прозрачной логикой, ограничителями шума и собственным хранилищем данных.
+It is not an execution bot. It does not connect to a broker, place orders, or claim to predict the market. It is a personal decision-support system with transparent rules, noise controls, and operator-owned data.
 
-> Публичен исходный код для самостоятельного развёртывания. Рабочий личный инстанс автора не является публичным демо и не связан из этого репозитория.
+> The source code is public for self-hosting. The author's personal production instance is not a public demo and is not linked from this repository.
 
-## Что умеет бот
+## What the bot can do
 
-- Анализирует каждый актив раз в час по ансамблю из пяти компонентов: дневной тренд, часовой тайминг, экстремумы, волатильность и исторический перцентиль.
-- По-разному взвешивает сигналы для forex, акций, криптовалют, сырья и индексов.
-- Работает в обе стороны: ищет разумный момент **купить** актив или **продать** его.
-- Отделяет «наблюдать» от действительно сильного окна и не тревожит пользователя при слабом сигнале.
-- Учитывает rolling baseline, cooldown, тихие часы, персональный silence и blackout вокруг крупных экономических событий.
-- Поддерживает несколько пользователей и индивидуальные подписки — до 10 на пользователя и до 15 активных инструментов на один бесплатный инстанс.
-- Показывает не только итоговый score, но и вклад каждого фактора через `/explain`.
-- Ведёт историю алертов, утренний дайджест и бюджетный план конвертации EUR → USD.
-- Сам следит за свежестью анализа, расходом квоты и сбрасывает суточные счётчики.
-- Работает без выделенного сервера: Telegram webhook + Cloudflare Worker + D1.
+- Analyzes every active asset hourly through five components: daily trend, hourly timing, extremes, volatility, and historical percentile.
+- Uses different weight profiles for forex, stocks, crypto, commodities, and indices.
+- Works in both directions: it can look for a reasonable moment to **buy** or **sell**.
+- Separates “watch” from actionable partial and strong windows.
+- Applies rolling baselines, cooldowns, quiet hours, personal silence, and macro-event blackout windows.
+- Supports multiple users with individual subscriptions — up to 10 per user and 15 active instruments per free-tier instance.
+- Explains the contribution of each factor through `/explain` instead of exposing only a magic number.
+- Maintains alert history, a morning digest, and an EUR → USD conversion budget plan.
+- Monitors analysis freshness and API quota, with a daily quota reset.
+- Runs without a dedicated server: Telegram webhook + Cloudflare Worker + D1.
 
-## Рынки и источники данных
+## Markets and data sources
 
-| Рынок | Примеры | Источник | Что важно |
+| Market | Examples | Provider | Notes |
 |---|---|---|---|
-| Forex | `EUR/USD`, `GBP/USD` | [Twelve Data](https://twelvedata.com/) | Дневные и часовые OHLC-свечи |
-| Акции США | `AAPL`, `TSLA`, `NVDA` | Twelve Data | Автоматический поиск и классификация тикера |
-| Акции MOEX | `LKOH`, `GAZP`, `SBER` | [MOEX ISS](https://iss.moex.com/iss/reference/) | Бесплатный API, собственные market-hours |
-| Криптовалюты | `BTC/USD`, `ETH/USD` | [Coinbase Exchange](https://docs.cdp.coinbase.com/exchange/docs/welcome) | 24/7, не расходует квоту Twelve Data |
-| Драгметаллы | `XAU/USD`, `XAG/USD` | Yahoo Finance chart API | Золото, серебро, платина, палладий |
-| Индексы | зависит от Twelve Data | Twelve Data | Отдельный профиль весов скоринга |
+| Forex | `EUR/USD`, `GBP/USD` | [Twelve Data](https://twelvedata.com/) | Daily and hourly OHLC candles |
+| US equities | `AAPL`, `TSLA`, `NVDA` | Twelve Data | Automatic symbol resolution and classification |
+| MOEX equities | `LKOH`, `GAZP`, `SBER` | [MOEX ISS](https://iss.moex.com/iss/reference/) | Free API and market-hours logic |
+| Crypto | `BTC/USD`, `ETH/USD` | [Coinbase Exchange](https://docs.cdp.coinbase.com/exchange/docs/welcome) | 24/7 and no Twelve Data credits |
+| Precious metals | `XAU/USD`, `XAG/USD` | Yahoo Finance chart API | Gold, silver, platinum, palladium |
+| Indices | subject to Twelve Data coverage | Twelve Data | Dedicated scoring weights |
 
-Провайдер выбирается автоматически. Сетевые запросы к MOEX, Yahoo и Coinbase используют общий timeout/retry-контур; падение одного источника не превращает устаревшие данные в свежий сигнал.
+The provider is selected automatically. MOEX, Yahoo, and Coinbase calls share a timeout/retry layer; a failing provider cannot silently turn stale data into a fresh signal.
 
-## Как рождается сигнал
+## How a signal is produced
 
 ```mermaid
 flowchart LR
-  A["Дневные + часовые свечи"] --> B["5-компонентный score 0–100"]
-  B --> C["Профиль весов по типу актива"]
-  C --> D{"Режим"}
-  D -->|"0–64"| E["Ждать"]
-  D -->|"65–74"| F["Наблюдать"]
-  D -->|"75–84"| G["Частичное окно"]
-  D -->|"85–100"| H["Сильное окно"]
+  A["Daily + hourly candles"] --> B["Five-part score, 0–100"]
+  B --> C["Asset-type weight profile"]
+  C --> D{"Regime"}
+  D -->|"0–64"| E["Wait"]
+  D -->|"65–74"| F["Watch"]
+  D -->|"75–84"| G["Partial window"]
+  D -->|"85–100"| H["Strong window"]
   G --> I{"Gate"}
   H --> I
-  I -->|"cooldown · blackout · quiet · silence"| J["Не беспокоить"]
-  I -->|"всё сошлось"| K["Telegram-алерт + объяснение"]
+  I -->|"cooldown · blackout · quiet · silence"| J["Stay quiet"]
+  I -->|"all conditions pass"| K["Telegram alert + explanation"]
 ```
 
-### Пять компонентов
+### The five components
 
-| Компонент | Что измеряет | Примеры индикаторов |
+| Component | What it measures | Example indicators |
 |---|---|---|
-| `trend_daily` | Направление среднесрочного движения | EMA20/EMA50, SMA50/SMA200 |
-| `timing_hourly` | Насколько удачен момент внутри дня | RSI, MACD histogram, EMA20 |
-| `extremes` | Близость к локальному пику или дну | RSI, Bollinger Bands |
-| `volatility` | Насколько режим пригоден для действия | Нормализованный ATR |
-| `historical` | Где цена находится в недавнем диапазоне | Percentile rank за 45–60 дней |
+| `trend_daily` | Medium-term direction | EMA20/EMA50, SMA50/SMA200 |
+| `timing_hourly` | Intraday entry/exit timing | RSI, MACD histogram, EMA20 |
+| `extremes` | Proximity to a local top or bottom | RSI, Bollinger Bands |
+| `volatility` | Whether the current regime is usable | Normalized ATR |
+| `historical` | Position inside the recent range | 45–60 day percentile rank |
 
-Forex и commodity балансируют тренд и тайминг; crypto сильнее опирается на часовой momentum; индексы — на дневной тренд. Для `buy` логика компонентов зеркалится: низкая цена и перепроданность становятся положительным сигналом.
+Forex and commodities balance trend with timing; crypto gives more weight to hourly momentum; indices emphasize daily trend. For a `buy` subscription, directional components are mirrored so low price and oversold conditions become positive evidence.
 
-## Команды Telegram
+## Telegram commands
 
-| Команда | Что делает |
+| Command | Behavior |
 |---|---|
-| `/subscribe SYMBOL` | Находит актив и предлагает направление buy/sell |
-| `/unsubscribe SYMBOL` | Удаляет подписку; orphan-актив перестаёт расходовать квоту |
-| `/assets` | Показывает подписки и их текущие оценки |
-| `/status [SYMBOL]` | Даёт обзор всех подписок или подробности по одному активу |
-| `/explain [SYMBOL]` | Раскладывает score по пяти компонентам |
-| `/history` | Показывает последние 10 алертов |
-| `/silence [1h\|3d\|2w]` | Временно заглушает уведомления, по умолчанию на 7 дней |
-| `/resume` | Снимает silence досрочно |
-| `/quiet 23 7` | Включает персональные тихие часы |
-| `/digest on\|off` | Управляет утренним дайджестом |
-| `/budget 6000 30d` | Ставит цель конвертации EUR → USD |
-| `/budget done 1500 1.0852` | Записывает частичную конвертацию |
-| `/undo` | Отменяет последнюю запись конвертации |
-| `/leave` | Удаляет пользователя и его подписки |
+| `/subscribe SYMBOL` | Resolves an asset and asks for buy/sell direction |
+| `/unsubscribe SYMBOL` | Removes subscriptions and deactivates orphan assets |
+| `/assets` | Lists subscriptions and their latest scores |
+| `/status [SYMBOL]` | Shows an overview or one detailed asset |
+| `/explain [SYMBOL]` | Breaks the score down into five components |
+| `/history` | Shows the latest 10 alerts |
+| `/silence [1h\|3d\|2w]` | Pauses notifications; seven days by default |
+| `/resume` | Ends silence early |
+| `/quiet 23 7` | Sets personal quiet hours |
+| `/digest on\|off` | Controls the morning digest |
+| `/budget 6000 30d` | Creates an EUR → USD conversion target |
+| `/budget done 1500 1.0852` | Records a partial conversion |
+| `/undo` | Removes the latest conversion record |
+| `/leave` | Removes the current user and subscriptions |
 
-В алерте есть inline-кнопки: отметить конвертацию и заглушить уведомления на 1 или 7 дней. При активном бюджете бот показывает остаток, дедлайн, средний курс и рекомендуемую долю следующего шага.
+Alerts include inline actions for recording a conversion and muting notifications for one or seven days. With an active budget, the bot also shows the remaining amount, deadline, average rate, and a pacing-aware suggested next step.
 
-## Архитектура
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -114,25 +112,25 @@ flowchart TB
   W --> SCORE["Indicators → scoring → gating"]
   SCORE --> D1[("Cloudflare D1")]
   D1 --> W
-  W -->|"alerts · digest · commands"| TG
+  W -->|"alerts · digests · commands"| TG
   GH["GitHub Actions"] -->|"test · migrate · deploy · smoke"| W
 ```
 
-Продакшен-путь находится в [`worker/`](./worker/): TypeScript Worker принимает подписанный webhook, запускает cron-задачи и хранит пользователей, подписки, состояние активов и историю в D1.
+The production path lives in [`worker/`](./worker/). The TypeScript Worker receives the authenticated webhook, runs scheduled jobs, and stores users, subscriptions, asset state, and alert history in D1.
 
-Python-код в [`src/`](./src/) — исходная reference implementation и локальный backtest toolkit. Parity-тесты защищают перенос математики скоринга из Python в TypeScript.
+The Python code in [`src/`](./src/) is the original reference implementation and local backtesting toolkit. Parity tests protect the mathematical port from Python to TypeScript.
 
-## Быстрый старт
+## Quick start
 
-### Что понадобится
+### Prerequisites
 
 - Node.js 24;
-- аккаунт Cloudflare с Workers и D1;
-- Telegram-бот от [@BotFather](https://t.me/BotFather);
-- бесплатный ключ Twelve Data;
-- Wrangler CLI, устанавливается вместе с зависимостями проекта.
+- a Cloudflare account with Workers and D1;
+- a Telegram bot created through [@BotFather](https://t.me/BotFather);
+- a free Twelve Data API key;
+- Wrangler CLI, installed with the project dependencies.
 
-### 1. Установить и проверить
+### 1. Install and verify
 
 ```bash
 git clone https://github.com/dobrodob/time-to-change.git
@@ -143,26 +141,26 @@ npm run typecheck
 npm run lint
 ```
 
-Integration-тесты с настоящим Worker runtime запускаются локально и в CI:
+Worker-runtime integration tests run locally and in CI:
 
 ```bash
 npm run test:integration
 ```
 
-### 2. Создать D1
+### 2. Create D1
 
 ```bash
 npx wrangler login
 npx wrangler d1 create euro-dollar-bot-state
 ```
 
-Скопируйте выданный `database_id` в [`worker/wrangler.toml`](./worker/wrangler.toml), затем:
+Paste the resulting `database_id` into [`worker/wrangler.toml`](./worker/wrangler.toml), then apply migrations:
 
 ```bash
 npx wrangler d1 migrations apply euro-dollar-bot-state --remote
 ```
 
-### 3. Добавить секреты
+### 3. Store secrets
 
 ```bash
 npx wrangler secret put TELEGRAM_BOT_TOKEN
@@ -170,29 +168,29 @@ npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 npx wrangler secret put TWELVEDATA_API_KEY
 ```
 
-Webhook secret должен содержать не меньше 32 случайных символов. Для локального запуска скопируйте [`worker/.dev.vars.example`](./worker/.dev.vars.example) в `.dev.vars`; этот файл игнорируется git.
+The webhook secret must contain at least 32 random characters. For local development, copy [`worker/.dev.vars.example`](./worker/.dev.vars.example) to `.dev.vars`; the destination is gitignored.
 
-### 4. Задеплоить и подключить Telegram
+### 4. Deploy and connect Telegram
 
 ```bash
 cd worker
 npx wrangler deploy
 ```
 
-После deploy установите Telegram webhook на `<WORKER_URL>/telegram` с тем же `TELEGRAM_WEBHOOK_SECRET`. Полный набор команд и rollback-подсказки — в [worker/README.md](./worker/README.md).
+After deployment, set the Telegram webhook to `<WORKER_URL>/telegram` using the same `TELEGRAM_WEBHOOK_SECRET`. See [worker/README.md](./worker/README.md) for the full command sequence and rollback notes.
 
-## Разработка и проверки
+## Development and verification
 
 ```bash
 cd worker
-npm run dev              # локальный Worker на :8787
+npm run dev              # local Worker on :8787
 npm test                 # unit + parity
-npm run test:integration # Miniflare D1, Linux/WSL/CI
+npm run test:integration # Miniflare D1; Linux/WSL/CI
 npm run typecheck        # tsc --noEmit
 npm run lint             # Biome
 ```
 
-Для legacy backtest:
+To use the legacy backtest toolkit:
 
 ```bash
 python -m venv .venv
@@ -200,15 +198,15 @@ pip install -e ".[dev,backtest]"
 python -m src.cli.backtest --months 12
 ```
 
-## CI/CD и резервирование
+## CI/CD and backups
 
-- `ci.yml` проверяет TypeScript Worker и Python reference implementation при каждом PR и push в `main`.
-- `deploy-worker.yml` вручную запускает полный Worker-gate, миграции, deploy и закрытый health-check через защищённый GitHub Environment `production`.
-- `backtest.yml` вручную строит отчёт на исторических данных.
-- `d1-backup.yml` еженедельно экспортирует D1, шифрует архив AES-256-CBC + PBKDF2 и только после этого загружает artifact. Он включается переменной `D1_BACKUP_ENABLED=true` и использует secrets из environment `production`.
-- Cloudflare D1 Time Travel даёт дополнительное point-in-time recovery; срок зависит от тарифа.
+- `ci.yml` verifies both the TypeScript Worker and the Python reference implementation on every pull request and push to `main`.
+- `deploy-worker.yml` manually runs the complete Worker gate, migrations, deployment, and a private health check through the protected `production` GitHub Environment.
+- `backtest.yml` produces a historical report on demand.
+- `d1-backup.yml` exports D1 weekly, encrypts the archive with AES-256-CBC + PBKDF2, and only then uploads the artifact. Enable it with `D1_BACKUP_ENABLED=true`; credentials come from the `production` environment.
+- Cloudflare D1 Time Travel provides an additional point-in-time recovery layer; retention depends on the plan.
 
-## Структура проекта
+## Project structure
 
 ```text
 worker/
@@ -228,31 +226,31 @@ data/events.json   manually maintained macro-event calendar
 docs/              architecture notes and public-facing assets
 ```
 
-## Безопасность и приватность
+## Security and privacy
 
-- В репозитории нет runtime-state, Telegram `chat_id`, токенов или API-ключей. `state.json` и `.dev.vars` игнорируются.
-- Продовые данные живут в D1. Пример состояния содержит только пустые значения.
-- Telegram webhook принимает запросы только с совпадающим secret header и сравнивает его без раннего выхода.
-- Ошибки логируются структурированно; значения секретов в логи не пишутся.
-- GitHub Actions получает минимальные permissions; публичный fork не может использовать секреты исходного репозитория.
-- Уязвимости следует сообщать приватно по правилам [`SECURITY.md`](./SECURITY.md).
+- Runtime state, Telegram `chat_id` values, tokens, and API keys are not stored in the repository. `state.json` and `.dev.vars` are gitignored.
+- Production data lives in D1; the included state example is empty.
+- Telegram requests require the configured secret header, compared without an early exit.
+- Secrets are not included in structured logs.
+- GitHub Actions uses minimal permissions; a public fork cannot access secrets belonging to the upstream repository.
+- Please report vulnerabilities privately according to [`SECURITY.md`](./SECURITY.md).
 
-Текущий режим доступа автоматически регистрирует пользователя, который нашёл Telegram-бота. Поэтому не публикуйте username своего живого инстанса, если не готовы принимать сторонних пользователей; для публичного сервиса сначала добавьте allowlist или отдельную модель авторизации.
+The current access mode automatically registers anyone who reaches the Telegram bot. Do not publish your live bot username unless you intend to accept outside users; add an allowlist or a stronger authorization model before exposing an instance as a public service.
 
-## Ограничения
+## Limitations
 
-- Score — эвристическая оценка, а не прогноз цены и не инвестиционная рекомендация.
-- Бот не совершает сделки и не знает комиссию конкретного банка или брокера.
-- Экономический blackout-календарь поддерживается вручную.
-- Календарь MOEX учитывает обычные торговые часы, но не все российские праздники.
-- Бесплатная квота Twelve Data ограничивает практический размер одного инстанса; код ставит safety cap в 15 активов.
-- Интерфейс Telegram сейчас русскоязычный, display timezone — `Europe/Madrid`.
+- The score is a heuristic, not a price forecast or financial advice.
+- The bot does not execute trades or know your bank or broker fees.
+- The macro-event blackout calendar is maintained manually.
+- MOEX logic covers standard trading hours, not every Russian public holiday.
+- Twelve Data's free quota limits the practical size of an instance; the code caps it at 15 active assets.
+- Telegram copy is currently in Russian and display time uses `Europe/Madrid`.
 
-## Инженерный кейс
+## Engineering story
 
-Проект начался как однопользовательский EUR/USD cron-бот на Python и вырос в multi-user serverless-продукт с несколькими рынками и четырьмя источниками данных. В репозитории сохранены [архитектурные решения](./docs/architecture.md), versioned D1 migrations и parity fixtures — не как декорация, а как след проверяемой эволюции: от git-backed JSON state к D1, от polling к webhook, от одного курса к направленным подпискам на разные активы.
+The project started as a single-user EUR/USD Python cron bot and evolved into a multi-user serverless product spanning several markets and four data providers. The repository keeps its [architecture decisions](./docs/architecture.md), versioned D1 migrations, and parity fixtures as evidence of that evolution: git-backed JSON state became D1, polling became an authenticated webhook, and one exchange rate became direction-aware subscriptions across asset classes.
 
-## Лицензия
+## License
 
 [MIT](./LICENSE) © 2026 Konstantin Vorovich.
 
