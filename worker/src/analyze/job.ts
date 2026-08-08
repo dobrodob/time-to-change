@@ -12,12 +12,13 @@
  */
 import { alertInlineKeyboard, formatAlert } from "../commands/formatter";
 import type { ValidatedEnv } from "../env";
-import { log } from "../lib/log";
+import { errorKind, log } from "../lib/log";
+import { budgetStateForRole } from "../lib/privacy";
 import { isInQuietWindow, nowIso } from "../lib/time";
 import { StateRepo } from "../state/repo";
 import type { Asset, Direction, LastScoreBreakdown, User } from "../state/schema";
 import { TelegramAuthError, TelegramBlockedError, TelegramClient } from "../telegram/api";
-import { findBlackout } from "./events-filter";
+import { blackoutEventRange, findBlackout, type BlackoutWindow } from "./events-filter";
 import { type GateDecision, computeDailyEdgePct, computeEdgePct, decide } from "./gating";
 import { isMarketOpenForType } from "./market-calendar";
 import { TwelveDataQuotaError, getProviderForAsset } from "./providers";
@@ -39,14 +40,22 @@ export async function runAnalyze(env: ValidatedEnv): Promise<void> {
   }
   log("info", "analyze_starting", { active_assets: activeAssets.length });
 
+  // A blackout remains active after an event too. Query the complete window
+  // once per run instead of asking only for the next future event per asset.
+  const eventRange = blackoutEventRange(now);
+  const blackout = findBlackout(
+    now,
+    await repo.listEventsInRange(eventRange.from, eventRange.to),
+  );
+
   for (const asset of activeAssets) {
     try {
-      await analyzeAsset(env, repo, asset, now);
+      await analyzeAsset(env, repo, asset, now, blackout);
     } catch (err) {
       if (err instanceof TelegramAuthError) throw err; // fatal
       log("error", "analyze_asset_failed", {
         symbol: asset.symbol,
-        error: String(err).slice(0, 200),
+        error_kind: errorKind(err),
       });
     }
   }
@@ -57,6 +66,7 @@ async function analyzeAsset(
   repo: StateRepo,
   asset: Asset,
   now: string,
+  blackout: BlackoutWindow | null,
 ): Promise<void> {
   if (!isMarketOpenForType(asset.type, now)) {
     log("info", "asset_market_closed", { symbol: asset.symbol, type: asset.type });
@@ -96,14 +106,10 @@ async function analyzeAsset(
   const dailyEdgePct = computeDailyEdgePct(daily);
 
   const assetState = await repo.getAssetState(asset.symbol);
-  const upcoming = await repo.getUpcomingEvent(now);
-  const events = upcoming !== null ? [upcoming] : [];
-  const blackout = findBlackout(now, events);
-
-  // Кэшируем breakdown первого direction для last_score_breakdown
-  // (используется /explain; для simplicity сохраняем direction-agnostic "sell" view).
-  let primaryBreakdown: ScoreBreakdown | null = null;
-  let primaryEdge = 0;
+  const directionalScores: { sell: LastScoreBreakdown | null; buy: LastScoreBreakdown | null } = {
+    sell: null,
+    buy: null,
+  };
 
   // Для каждого direction: считаем score, gate, broadcast.
   for (const dir of ["sell", "buy"] as const) {
@@ -113,12 +119,6 @@ async function analyzeAsset(
 
     const breakdown = computeScore(daily, hourly, dir, asset.type);
     const edgePct = computeEdgePct(breakdown.rate, median30d);
-
-    // Cache primary breakdown (sell direction если есть, иначе первый)
-    if (primaryBreakdown === null || dir === "sell") {
-      primaryBreakdown = breakdown;
-      primaryEdge = edgePct;
-    }
 
     // Last alert для этого direction — из asset_state
     const lastAlert =
@@ -167,6 +167,19 @@ async function analyzeAsset(
       gate_reason: gate.reason,
     });
 
+    directionalScores[dir] = {
+      ts: now,
+      score: breakdown.score,
+      regime: breakdown.regime,
+      rate: breakdown.rate,
+      edge_pct: edgePct,
+      daily_edge_pct: dailyEdgePct,
+      components: breakdown.components,
+      notes: breakdown.notes,
+      was_alert: gate.allow,
+      gate_reason: gate.allow ? null : gate.reason,
+    };
+
     if (!gate.allow) continue;
 
     // Алерт идёт — append history + broadcast.
@@ -181,21 +194,10 @@ async function analyzeAsset(
     await broadcastAlertForAsset(env, repo, asset, dir, breakdown, edgePct, now, subscribers);
   }
 
-  // Persist breakdown для /explain
-  if (primaryBreakdown !== null) {
-    const lastScore: LastScoreBreakdown = {
-      ts: now,
-      score: primaryBreakdown.score,
-      regime: primaryBreakdown.regime,
-      rate: primaryBreakdown.rate,
-      edge_pct: primaryEdge,
-      daily_edge_pct: dailyEdgePct,
-      components: primaryBreakdown.components,
-      notes: primaryBreakdown.notes,
-      was_alert: false, // direction-specific, here global summary
-      gate_reason: null,
-    };
-    await repo.setAssetLastScoreBreakdown(asset.symbol, lastScore);
+  // Persist both direction-specific snapshots in one write. This also records
+  // the real gate outcome for /explain instead of the former hard-coded values.
+  if (directionalScores.sell !== null || directionalScores.buy !== null) {
+    await repo.setAssetScoreBreakdowns(asset.symbol, directionalScores);
   }
 }
 
@@ -211,35 +213,40 @@ async function broadcastAlertForAsset(
 ): Promise<void> {
   const tg = new TelegramClient(env.TELEGRAM_BOT_TOKEN);
   const state = await repo.getBotState();
-  const text = formatAlert(breakdown, edgePct, nowIso_, state, "Europe/Madrid", {
-    asset,
-    direction,
-  });
-  const keyboard = alertInlineKeyboard(breakdown, state, nowIso_, { asset, direction });
 
   for (const sub of subscribers) {
     const user = await repo.getUser(sub.chat_id);
     if (user === null || !eligibleForAlert(user, nowIso_)) {
-      log("info", "alert_skip_user_state", { chat_id: sub.chat_id, symbol: asset.symbol });
+      log("info", "alert_skip_user_state", { symbol: asset.symbol });
       continue;
     }
+    const visibleState = budgetStateForRole(state, user.role);
+    const text = formatAlert(breakdown, edgePct, nowIso_, visibleState, "Europe/Madrid", {
+      asset,
+      direction,
+    });
+    const keyboard = alertInlineKeyboard(
+      breakdown,
+      visibleState,
+      nowIso_,
+      { asset, direction },
+      { includeConversionActions: user.role === "owner" },
+    );
     try {
       await tg.sendMessage(user.chat_id, text, { reply_markup: keyboard });
       log("info", "alert_sent", {
-        chat_id: user.chat_id,
         symbol: asset.symbol,
         direction,
       });
     } catch (err) {
       if (err instanceof TelegramAuthError) throw err;
       if (err instanceof TelegramBlockedError) {
-        log("warn", "alert_blocked", { chat_id: user.chat_id, symbol: asset.symbol });
+        log("warn", "alert_blocked", { symbol: asset.symbol });
         continue;
       }
       log("error", "alert_send_failed", {
-        chat_id: user.chat_id,
         symbol: asset.symbol,
-        error: String(err).slice(0, 200),
+        error_kind: errorKind(err),
       });
     }
   }

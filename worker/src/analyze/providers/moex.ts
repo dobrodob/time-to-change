@@ -14,11 +14,12 @@
  *   { "candles": { "columns": [...], "data": [[open, close, high, low, ...], ...] } }
  */
 import { fetchWithRetry } from "../../lib/http";
-import { log } from "../../lib/log";
+import { errorKind, log } from "../../lib/log";
 import type { Candle } from "../scoring";
 import type { FetchResult, Interval, PriceProvider, ResolvedSymbol } from "./types";
 
 const BASE_URL = "https://iss.moex.com/iss";
+const REQUEST_TIMEOUT_MS = 8000;
 
 export class MoexError extends Error {
   constructor(message: string) {
@@ -58,9 +59,10 @@ export class MoexProvider implements PriceProvider {
     const res = await fetchWithRetry(url);
     const payload = (await res.json()) as MoexCandlesResponse;
     if (!payload.candles) {
-      throw new MoexError(`Unexpected MOEX payload: ${JSON.stringify(payload).slice(0, 200)}`);
+      throw new MoexError("Unexpected MOEX payload");
     }
     const candles = parseCandles(payload.candles.columns, payload.candles.data);
+    if (candles.length === 0) throw new MoexError("No valid MOEX candles");
     // Take only last `count` candles.
     const trimmed = candles.slice(-count);
     return { candles: trimmed, creditsUsed: 0 };
@@ -71,7 +73,7 @@ export class MoexProvider implements PriceProvider {
     // MOEX securities search.
     const url = `${BASE_URL}/securities.json?q=${encodeURIComponent(upper)}&iss.only=securities&securities.columns=secid,shortname,is_traded,group&engine=stock&market=shares`;
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (!res.ok) return null;
       const payload = (await res.json()) as MoexSecuritySearchResponse;
       const cols = payload.securities?.columns ?? [];
@@ -79,6 +81,7 @@ export class MoexProvider implements PriceProvider {
       const secidIdx = cols.indexOf("secid");
       const nameIdx = cols.indexOf("shortname");
       const tradedIdx = cols.indexOf("is_traded");
+      if (secidIdx === -1 || tradedIdx === -1) return null;
       // Точный match по secid + торгуется сейчас.
       const exact = data.find(
         (row) => String(row[secidIdx]).toUpperCase() === upper && row[tradedIdx] === 1,
@@ -92,32 +95,53 @@ export class MoexProvider implements PriceProvider {
         currency: "RUB",
       };
     } catch (err) {
-      log("warn", "moex_resolve_failed", { symbol, error: String(err).slice(0, 200) });
+      log("warn", "moex_resolve_failed", { symbol, error_kind: errorKind(err) });
       return null;
     }
   }
 }
 
-function parseCandles(columns: string[], data: unknown[][]): Candle[] {
+export function parseCandles(columns: string[], data: unknown[][]): Candle[] {
   const openIdx = columns.indexOf("open");
   const closeIdx = columns.indexOf("close");
   const highIdx = columns.indexOf("high");
   const lowIdx = columns.indexOf("low");
   const beginIdx = columns.indexOf("begin");
-  if (openIdx === -1 || closeIdx === -1 || beginIdx === -1) {
-    throw new MoexError("MOEX candles missing required columns (open/close/begin)");
+  if (openIdx === -1 || closeIdx === -1 || highIdx === -1 || lowIdx === -1 || beginIdx === -1) {
+    throw new MoexError("MOEX candles missing required OHLC/begin columns");
   }
   const candles: Candle[] = [];
   for (const row of data) {
-    const open = Number(row[openIdx]);
-    const close = Number(row[closeIdx]);
-    const high = Number(row[highIdx]);
-    const low = Number(row[lowIdx]);
+    const rawOpen = row[openIdx];
+    const rawClose = row[closeIdx];
+    const rawHigh = row[highIdx];
+    const rawLow = row[lowIdx];
+    if (
+      typeof rawOpen !== "number" ||
+      typeof rawClose !== "number" ||
+      typeof rawHigh !== "number" ||
+      typeof rawLow !== "number"
+    ) {
+      continue;
+    }
+    const open = rawOpen;
+    const close = rawClose;
+    const high = rawHigh;
+    const low = rawLow;
     const begin = String(row[beginIdx]);
-    if (!Number.isFinite(open) || !Number.isFinite(close)) continue;
+    if (
+      !Number.isFinite(open) ||
+      !Number.isFinite(close) ||
+      !Number.isFinite(high) ||
+      !Number.isFinite(low)
+    ) {
+      continue;
+    }
     // MOEX даёт "YYYY-MM-DD HH:MM:SS" (MSK timezone). Convert to ISO UTC.
     // Replace space with T, append +03:00, parse → UTC ISO.
-    const iso = new Date(`${begin.replace(" ", "T")}+03:00`).toISOString();
+    const timestamp = new Date(`${begin.replace(" ", "T")}+03:00`);
+    if (!Number.isFinite(timestamp.getTime())) continue;
+    const iso = timestamp.toISOString();
     candles.push({ datetime: iso, open, high, low, close });
   }
   candles.sort((a, b) => a.datetime.localeCompare(b.datetime));

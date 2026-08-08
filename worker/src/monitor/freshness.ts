@@ -14,7 +14,7 @@
  */
 import { isMarketOpenForType } from "../analyze/market-calendar";
 import type { ValidatedEnv } from "../env";
-import { log } from "../lib/log";
+import { errorKind, log } from "../lib/log";
 import { nowIso } from "../lib/time";
 import { StateRepo } from "../state/repo";
 import type { Asset, AssetState, AssetType } from "../state/schema";
@@ -47,7 +47,15 @@ export function evaluateFreshness(
   }
   const lastTs = state?.last_score_breakdown?.ts ?? null;
   if (lastTs === null) {
-    return { alert: false, reason: "never_analyzed", freshness_seconds: null };
+    const activeAgeSeconds = Math.max(
+      0,
+      Math.floor((new Date(nowIso_).getTime() - new Date(asset.added_at).getTime()) / 1000),
+    );
+    return {
+      alert: activeAgeSeconds > thresholdSeconds,
+      reason: "never_analyzed",
+      freshness_seconds: activeAgeSeconds,
+    };
   }
   const freshnessSeconds = Math.floor(
     (new Date(nowIso_).getTime() - new Date(lastTs).getTime()) / 1000,
@@ -67,7 +75,9 @@ export interface StaleAsset {
 /**
  * Pure: из (asset, state) пар выбирает протухшие (рынок открыт + staleness >
  * порога). Переиспользует evaluateFreshness. Свежие / закрытый рынок /
- * never_analyzed (только что подписались) НЕ попадают.
+ * newly added never_analyzed assets stay quiet during the grace period; after
+ * the same threshold they alert, so a permanently broken first analysis cannot
+ * remain invisible.
  *
  * Зачем все активы, а не только EUR/USD: с приходом Yahoo-металлов появился
  * второй класс активов, чей фид (бесплатный flaky Yahoo) может молча протухнуть —
@@ -135,9 +145,9 @@ export async function runFreshnessCheck(env: ValidatedEnv): Promise<void> {
   } catch (err) {
     if (err instanceof TelegramAuthError) throw err;
     if (err instanceof TelegramBlockedError) {
-      log("warn", "freshness_check_alert_blocked", { chat_id: owner.chat_id });
+      log("warn", "freshness_check_alert_blocked");
       return;
     }
-    log("error", "freshness_check_alert_failed", { error: String(err).slice(0, 200) });
+    log("error", "freshness_check_alert_failed", { error_kind: errorKind(err) });
   }
 }

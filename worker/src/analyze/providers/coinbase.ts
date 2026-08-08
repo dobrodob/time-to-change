@@ -39,9 +39,7 @@ export function toCoinbaseProduct(symbol: string): string | null {
  */
 export function parseCoinbaseCandles(payload: unknown): Candle[] {
   if (!Array.isArray(payload)) {
-    throw new CoinbaseError(
-      `Unexpected Coinbase payload: ${JSON.stringify(payload).slice(0, 200)}`,
-    );
+    throw new CoinbaseError("Unexpected Coinbase payload");
   }
   const candles: Candle[] = [];
   for (const row of payload) {
@@ -49,7 +47,9 @@ export function parseCoinbaseCandles(payload: unknown): Candle[] {
     const [time, low, high, open, close] = row as (number | null)[];
     if (time == null || low == null || high == null || open == null || close == null) continue;
     if (![time, open, high, low, close].every((v) => Number.isFinite(v))) continue;
-    candles.push({ datetime: new Date(time * 1000).toISOString(), open, high, low, close });
+    const timestamp = new Date(time * 1000);
+    if (!Number.isFinite(timestamp.getTime())) continue;
+    candles.push({ datetime: timestamp.toISOString(), open, high, low, close });
   }
   if (candles.length === 0) {
     throw new CoinbaseError("Coinbase вернул ответ без пригодных OHLC-свечей");

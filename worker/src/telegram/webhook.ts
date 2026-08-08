@@ -11,7 +11,7 @@ import type { ValidatedEnv } from "../env";
  * Performance: возвращаем 200 OK Telegram'у **немедленно** через ctx.waitUntil,
  * чтобы handler работал асинхронно и Telegram не retry'ил.
  */
-import { log } from "../lib/log";
+import { errorKind, log } from "../lib/log";
 import { StateRepo } from "../state/repo";
 import { TelegramClient } from "./api";
 import { parseCallbackV2, parseCommand } from "./parser";
@@ -59,9 +59,7 @@ async function processUpdate(update: TelegramUpdate, env: ValidatedEnv): Promise
       const cmd = parseCommand(update.message.text);
       log("info", "command", {
         update_id: update.update_id,
-        chat_id: update.message.chat.id,
         kind: cmd.kind,
-        sender: update.message.from?.first_name ?? null,
       });
       await dispatchMessage(env, repo, tg, update.message, cmd);
     } else if (update.callback_query !== undefined) {
@@ -74,7 +72,7 @@ async function processUpdate(update: TelegramUpdate, env: ValidatedEnv): Promise
   } catch (err) {
     log("error", "webhook_process_failed", {
       update_id: update.update_id,
-      error: String(err).slice(0, 500),
+      error_kind: errorKind(err),
     });
   }
 }

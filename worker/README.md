@@ -5,14 +5,14 @@ Worker receives Telegram webhooks, runs scheduled market analysis, and stores
 state in Cloudflare D1.
 
 For the product overview and English documentation, start with the repository
-[`README.md`](../README.md) or [`README.en.md`](../README.en.md).
+[`README.md`](../README.md) or the Russian guide in [`docs/README.ru.md`](../docs/README.ru.md).
 
 ## Runtime surface
 
 | Entry point | Purpose |
 |---|---|
 | `POST /telegram` | Telegram webhook; requires `X-Telegram-Bot-Api-Secret-Token` |
-| `GET /health` | Liveness and analysis-freshness summary |
+| `GET /health` | Minimal liveness and analysis-freshness summary; no user or quota data |
 | `0 * * * *` | Analyze every active asset |
 | `25 9 * * *`, `25 10 * * *` | Madrid morning digest across DST |
 | `15 */3 * * *` | Market-aware freshness monitor |
@@ -88,10 +88,11 @@ GitHub Environment:
 - `D1_DATABASE_ID`
 - `WORKER_HEALTH_URL`
 
-The weekly backup additionally requires `D1_BACKUP_PASSPHRASE` and uploads only
-an encrypted artifact. Helper scripts consume protected values internally and
-do not forward Wrangler output, deployment identifiers, or endpoints to public
-Actions logs.
+The weekly backup additionally requires `D1_BACKUP_PASSPHRASE`, covers the
+multi-asset tables, and uploads only an encrypted artifact after a local
+decrypt/list verification. Helper scripts consume protected values internally
+and do not forward Wrangler output, deployment identifiers, or endpoints to
+public Actions logs.
 
 ## Provider routing
 

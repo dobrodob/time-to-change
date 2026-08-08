@@ -31,7 +31,7 @@ It is not an execution bot. It does not connect to a broker, place orders, or cl
 - Applies rolling baselines, cooldowns, quiet hours, personal silence, and macro-event blackout windows.
 - Supports multiple users with individual subscriptions — up to 10 per user and 15 active instruments per free-tier instance.
 - Explains the contribution of each factor through `/explain` instead of exposing only a magic number.
-- Maintains alert history, a morning digest, and an EUR → USD conversion budget plan.
+- Maintains per-user alert history and morning digests; the instance owner can also track an EUR → USD conversion budget.
 - Monitors analysis freshness and API quota, with a daily quota reset.
 - Runs without a dedicated server: Telegram webhook + Cloudflare Worker + D1.
 
@@ -86,17 +86,18 @@ Forex and commodities balance trend with timing; crypto gives more weight to hou
 | `/assets` | Lists subscriptions and their latest scores |
 | `/status [SYMBOL]` | Shows an overview or one detailed asset |
 | `/explain [SYMBOL]` | Breaks the score down into five components |
-| `/history` | Shows the latest 10 alerts |
+| `/history` | Shows the latest 10 alerts for the current user's subscriptions |
 | `/silence [1h\|3d\|2w]` | Pauses notifications; seven days by default |
 | `/resume` | Ends silence early |
 | `/quiet 23 7` | Sets personal quiet hours |
 | `/digest on\|off` | Controls the morning digest |
-| `/budget 6000 30d` | Creates an EUR → USD conversion target |
-| `/budget done 1500 1.0852` | Records a partial conversion |
-| `/undo` | Removes the latest conversion record |
-| `/leave` | Removes the current user and subscriptions |
+| `/budget 6000 30d` | Owner only: creates an EUR → USD conversion target |
+| `/budget done 1500 1.0852` | Owner only: records a partial conversion |
+| `/undo` | Owner only: removes the latest conversion record |
+| `/users` | Owner only: lists the instance's users |
+| `/leave` | Removes a member and their subscriptions; the owner cannot leave accidentally |
 
-Alerts include inline actions for recording a conversion and muting notifications for one or seven days. With an active budget, the bot also shows the remaining amount, deadline, average rate, and a pacing-aware suggested next step.
+Every user can mute alerts for one or seven days. Conversion actions and all budget details are visible only to the instance owner; members receive market analysis without the owner's financial plan.
 
 ## Architecture
 
@@ -200,10 +201,11 @@ python -m src.cli.backtest --months 12
 
 ## CI/CD and backups
 
-- `ci.yml` verifies both the TypeScript Worker and the Python reference implementation on every pull request and push to `main`.
-- `deploy-worker.yml` manually runs the complete Worker gate, migrations, deployment, and a private health check through the protected `production` GitHub Environment.
+- `ci.yml` verifies both the TypeScript Worker and the Python reference implementation on every pull request and push to `main`; reusable Actions are pinned to immutable commit SHAs.
+- `deploy-worker.yml` manually runs the complete Worker gate, migrations, deployment, and a minimal health check through the protected `production` GitHub Environment.
 - `backtest.yml` produces a historical report on demand.
-- `d1-backup.yml` exports D1 weekly, encrypts the archive with AES-256-CBC + PBKDF2, and only then uploads the artifact. Enable it with `D1_BACKUP_ENABLED=true`; credentials come from the `production` environment.
+- `d1-backup.yml` exports the complete D1 state weekly, encrypts it with AES-256-CBC + PBKDF2, verifies a decrypt-and-list round trip, and only then uploads the artifact. Enable it with `D1_BACKUP_ENABLED=true`; credentials come from the `production` environment.
+- Dependency vulnerability alerts stay enabled, while automated dependency PRs are intentionally disabled to keep a stable self-hosted project quiet; updates are reviewed manually.
 - Cloudflare D1 Time Travel provides an additional point-in-time recovery layer; retention depends on the plan.
 
 ## Project structure
@@ -231,8 +233,9 @@ docs/              architecture notes and public-facing assets
 - Runtime state, Telegram `chat_id` values, tokens, and API keys are not stored in the repository. `state.json` and `.dev.vars` are gitignored.
 - Production data lives in D1; the included state example is empty.
 - Telegram requests require the configured secret header, compared without an early exit.
-- Secrets are not included in structured logs.
-- GitHub Actions uses minimal permissions; a public fork cannot access secrets belonging to the upstream repository.
+- Structured logs discard Telegram identities, callback identifiers, raw errors, URLs, tokens, and other credential-shaped fields.
+- The public `/health` response exposes only schema version and analysis freshness, never users, quota details, update identifiers, or raw failures.
+- GitHub Actions uses minimal permissions and immutable action pins; a public fork cannot access secrets belonging to the upstream repository.
 - Please report vulnerabilities privately according to [`SECURITY.md`](./SECURITY.md).
 
 The current access mode automatically registers anyone who reaches the Telegram bot. Do not publish your live bot username unless you intend to accept outside users; add an allowlist or a stronger authorization model before exposing an instance as a public service.

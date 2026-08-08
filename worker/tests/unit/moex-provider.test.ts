@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MoexProvider } from "../../src/analyze/providers/moex";
+import { MoexError, MoexProvider, parseCandles } from "../../src/analyze/providers/moex";
 
 describe("MoexProvider.fetchCandles — retry через общий fetchWithRetry", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -35,5 +35,21 @@ describe("MoexProvider.fetchCandles — retry через общий fetchWithRet
     vi.stubGlobal("fetch", m);
     await expect(new MoexProvider().fetchCandles("NOPE", "1h", 5)).rejects.toThrow();
     expect(m).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MOEX candle validation", () => {
+  it("rejects a payload without complete OHLC columns", () => {
+    expect(() => parseCandles(["open", "close", "begin"], [])).toThrow(MoexError);
+  });
+
+  it("drops non-finite OHLC rows and invalid timestamps", () => {
+    const columns = ["open", "close", "high", "low", "begin"];
+    expect(
+      parseCandles(columns, [
+        [100, 101, "bad", 99, "2026-06-30 10:00:00"],
+        [100, 101, 102, 99, "not-a-date"],
+      ]),
+    ).toEqual([]);
   });
 });

@@ -43,12 +43,14 @@ export async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}):
         delayMs *= 2;
         continue;
       }
-      throw new HttpError(`fetch failed: ${String(err).slice(0, 200)}`);
+      // Network errors can embed the complete request URL (including query
+      // credentials). Replace them at this boundary with a stable safe error.
+      throw new HttpError("fetch failed");
     }
     if (res.ok) return res;
     if (res.status !== 429 && res.status < 500) {
       // фатальный 4xx — не ретраим
-      throw new HttpError(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`, res.status);
+      throw new HttpError(`HTTP ${res.status}`, res.status);
     }
     lastErr = new HttpError(`HTTP ${res.status}`, res.status);
     if (attempt < maxRetries) {

@@ -150,7 +150,39 @@ export const assetStateSchema = z.object({
   last_alert_buy_ts: isoString.nullable(),
   last_alert_buy_regime: z.string().nullable(),
   last_alert_buy_score: z.number().nullable(),
+  /** Directional snapshots added in schema v6. Optional keeps old fixtures/readers compatible. */
+  last_score_breakdown_sell: lastScoreBreakdownSchema.nullable().optional(),
+  last_score_breakdown_buy: lastScoreBreakdownSchema.nullable().optional(),
   last_score_breakdown: lastScoreBreakdownSchema.nullable(),
   quota_credits_today: z.number().int(),
 });
 export type AssetState = z.infer<typeof assetStateSchema>;
+
+/**
+ * Return only a snapshot computed for the requested direction.
+ * The legacy shared snapshot is used only while neither directional column has
+ * data, which makes rolling upgrades safe without showing a sell score to a
+ * buy subscriber (or vice versa).
+ */
+export function scoreBreakdownForDirection(
+  state: AssetState | null,
+  dir: Direction,
+): LastScoreBreakdown | null {
+  if (state === null) return null;
+  const specific =
+    dir === "sell" ? state.last_score_breakdown_sell : state.last_score_breakdown_buy;
+  if (specific != null) return specific;
+  const hasDirectionalSnapshot =
+    state.last_score_breakdown_sell != null || state.last_score_breakdown_buy != null;
+  return hasDirectionalSnapshot ? null : state.last_score_breakdown;
+}
+
+/** Compatibility view for formatters that still read `last_score_breakdown`. */
+export function assetStateForDirection(
+  state: AssetState | null,
+  dir: Direction,
+): AssetState | null {
+  return state === null
+    ? null
+    : { ...state, last_score_breakdown: scoreBreakdownForDirection(state, dir) };
+}
