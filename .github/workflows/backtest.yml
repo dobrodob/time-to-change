@@ -1,0 +1,57 @@
+name: backtest
+
+# Ручной бэктест на исторических данных Twelve Data.
+# Не трогает state.json, выкладывает отчёт как artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: 'месяцев часовой истории (1-12)'
+        required: false
+        default: '12'
+      starting_eur:
+        description: 'стартовая сумма EUR'
+        required: false
+        default: '1000'
+      min_edge_pct:
+        description: 'override MIN_EDGE_PCT'
+        required: false
+        default: '2.5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -e .[backtest]
+
+      - name: Run backtest
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          MIN_EDGE_PCT: ${{ github.event.inputs.min_edge_pct }}
+        run: |
+          python -m src.cli.backtest \
+            --months ${{ github.event.inputs.months }} \
+            --starting-eur ${{ github.event.inputs.starting_eur }}
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: backtest-report
+          path: data/backtest/
+          retention-days: 30

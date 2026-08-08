@@ -1,0 +1,86 @@
+[
+  {
+    "input": {
+      "score": 40
+    },
+    "expected": "cooldown"
+  },
+  {
+    "input": {
+      "score": 50
+    },
+    "expected": "cooldown"
+  },
+  {
+    "input": {
+      "score": 60
+    },
+    "expected": "cooldown"
+  },
+  {
+    "input": {
+      "score": 65
+    },
+    "expected": "watch"
+  },
+  {
+    "input": {
+      "score": 70
+    },
+    "expected": "watch"
+  },
+  {
+    "input": {
+      "score": 74.99
+    },
+    "expected": "watch"
+  },
+  {
+    "input": {
+      "score": 75
+    },
+    "expected": "partial"
+  },
+  {
+    "input": {
+      "score": 80
+    },
+    "expected": "partial"
+  },
+  {
+    "input": {
+      "score": 84.99
+    },
+    "expected": "partial"
+  },
+  {
+    "input": {
+      "score": 85
+    },
+    "expected": "strong"
+  },
+  {
+    "input": {
+      "score": 90
+    },
+    "expected": "strong"
+  },
+  {
+    "input": {
+      "score": 100
+    },
+    "expected": "strong"
+  },
+  {
+    "input": {
+      "score": 0
+    },
+    "expected": "cooldown"
+  },
+  {
+    "input": {
+      "score": -10
+    },
+    "expected": "cooldown"
+  }
+]

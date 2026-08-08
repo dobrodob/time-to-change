@@ -1,0 +1,39 @@
+name = "euro-dollar-bot"
+main = "src/index.ts"
+compatibility_date = "2026-05-12"
+compatibility_flags = ["nodejs_compat"]
+
+# Cron triggers.
+# analyze — каждый час в 0 минут UTC.
+# digest — два отдельных entries (НЕ "25 9,10 * * *"!) потому что event.cron
+#          возвращает буквальную строку из конфига; combined-форма не
+#          сматчилась бы в branching в src/index.ts.
+# freshness — self-check каждые 3 часа в 15-ю минуту (offset от analyze tick'ов
+#             чтобы не упереться в гонку с свежей записью). Market-aware: если
+#             forex EUR/USD сейчас в weekend gap — alert не шлётся.
+# quota-reset — 00:01 UTC: обнуляет asset_state.quota_credits_today (счётчик квоты
+#             TwelveData), синхронно с UTC-циклом сброса самой TwelveData.
+[triggers]
+crons = [
+  "0 * * * *",
+  "25 9 * * *",
+  "25 10 * * *",
+  "15 */3 * * *",
+  "1 0 * * *"
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "euro-dollar-bot-state"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
+# Preview environment (spec §5) — DEFERRED out of MVP.
+# Если понадобится изолированная dev-DB для предв. тестов — добавить
+# [env.preview] block + `wrangler d1 create euro-dollar-bot-state-preview`.
+# Не блокирует основной workflow; production DB достаточна, а Miniflare
+# покрывает локальные тесты (vitest-pool-workers создаёт ephemeral SQLite).

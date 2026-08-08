@@ -1,0 +1,32 @@
+{
+  "schema_version": 3,
+  "updated_at": "2026-01-01T00:00:00Z",
+  "telegram": {
+    "last_update_id": 0,
+    "users": [],
+    "menu_set_at": null,
+    "menu_commands_count": 0
+  },
+  "last_alert": null,
+  "alert_history_30d": [],
+  "baseline": {
+    "rolling_median_30d": null,
+    "rolling_p90_90d": null,
+    "computed_at": null
+  },
+  "quota": {
+    "twelvedata_credits_used_today": 0,
+    "reset_at": null
+  },
+  "consecutive_failures": 0,
+  "budget": {
+    "target_eur": null,
+    "deadline": null,
+    "started_at": null,
+    "converted_eur": 0,
+    "converted_usd": 0,
+    "history": []
+  },
+  "last_score_breakdown": null,
+  "last_digest_at": null
+}

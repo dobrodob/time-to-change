@@ -1,0 +1,33 @@
+{
+  "name": "time-to-change-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "test:integration": "vitest run --config vitest.workers.config.ts",
+    "test:all": "npm run test && npm run test:integration",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint src tests",
+    "format": "biome format --write src tests",
+    "d1:migrations:list": "wrangler d1 migrations list euro-dollar-bot-state --remote",
+    "d1:migrations:apply": "wrangler d1 migrations apply euro-dollar-bot-state --remote"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
+    "@cloudflare/workers-types": "^5.20260808.1",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.120.0"
+  },
+  "optionalDependencies": {
+    "@cloudflare/workerd-windows-64": "^1.20260511.1"
+  }
+}

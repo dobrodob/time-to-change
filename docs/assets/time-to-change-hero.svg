@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Time to Change</title>
+  <desc id="desc">A market signal moving from noise to a clear decision inside Telegram.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.55" stop-color="#0b1d32"/>
+      <stop offset="1" stop-color="#10243a"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#58f0c7" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#58f0c7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#42d3ff"/>
+      <stop offset="1" stop-color="#72f6bd"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#b8d3e8" stroke-opacity="0.07"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="420" rx="30" fill="url(#bg)"/>
+  <rect width="1200" height="420" rx="30" fill="url(#grid)"/>
+  <circle cx="930" cy="202" r="250" fill="url(#aura)"/>
+
+  <g transform="translate(72 70)">
+    <rect width="132" height="32" rx="16" fill="#72f6bd" fill-opacity="0.12" stroke="#72f6bd" stroke-opacity="0.45"/>
+    <circle cx="18" cy="16" r="5" fill="#72f6bd"/>
+    <text x="31" y="21" fill="#bdfbe7" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" letter-spacing="1.2">SELF-HOSTED</text>
+
+    <text x="0" y="101" fill="#f4f9fd" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="58" font-weight="760" letter-spacing="-2">Time to Change</text>
+    <text x="0" y="145" fill="#9eb6c9" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22">Explainable market timing — delivered in Telegram.</text>
+    <text x="0" y="185" fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16">FX · stocks · crypto · metals</text>
+
+    <g transform="translate(0 226)">
+      <rect width="132" height="40" rx="20" fill="#132c43" stroke="#254863"/>
+      <text x="66" y="25" text-anchor="middle" fill="#c5d7e4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13">Cloudflare</text>
+      <rect x="146" width="100" height="40" rx="20" fill="#132c43" stroke="#254863"/>
+      <text x="196" y="25" text-anchor="middle" fill="#c5d7e4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13">D1</text>
+      <rect x="260" width="126" height="40" rx="20" fill="#132c43" stroke="#254863"/>
+      <text x="323" y="25" text-anchor="middle" fill="#c5d7e4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13">TypeScript</text>
+    </g>
+  </g>
+
+  <g transform="translate(660 65)">
+    <rect width="460" height="286" rx="24" fill="#0c1b2c" stroke="#28445a"/>
+    <rect x="24" y="22" width="132" height="34" rx="17" fill="#72f6bd" fill-opacity="0.12"/>
+    <text x="90" y="44" text-anchor="middle" fill="#72f6bd" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700">STRONG · 87</text>
+    <text x="436" y="43" text-anchor="end" fill="#68869c" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">EUR / USD</text>
+
+    <g transform="translate(28 78)">
+      <path d="M0 155H404M0 105H404M0 55H404M0 5H404" stroke="#9cb8cc" stroke-opacity="0.09"/>
+      <path d="M0 142 C35 136 54 150 83 128 S137 88 170 100 S218 122 246 83 S303 71 330 37 S372 35 404 9" fill="none" stroke="url(#line)" stroke-width="4" stroke-linecap="round" filter="url(#glow)"/>
+      <circle cx="404" cy="9" r="7" fill="#72f6bd"/>
+      <circle cx="404" cy="9" r="14" fill="none" stroke="#72f6bd" stroke-opacity="0.35"/>
+    </g>
+
+    <g transform="translate(28 253)">
+      <text fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">trend</text>
+      <text x="79" fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">timing</text>
+      <text x="168" fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">extremes</text>
+      <text x="276" fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">volatility</text>
+      <text x="376" fill="#6f8ca3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12">history</text>
+    </g>
+  </g>
+</svg>

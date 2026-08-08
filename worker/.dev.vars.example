@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
+TELEGRAM_BOT_TOKEN=replace_with_your_bot_token
+TELEGRAM_WEBHOOK_SECRET=replace_with_at_least_32_random_characters
+TWELVEDATA_API_KEY=replace_with_your_key

@@ -1,0 +1,131 @@
+[
+  {
+    "input": "b:done:30",
+    "expected": {
+      "kind": "alert_done_pct",
+      "pct": 30,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:done:50",
+    "expected": {
+      "kind": "alert_done_pct",
+      "pct": 50,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:done:100",
+    "expected": {
+      "kind": "alert_done_pct",
+      "pct": 100,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:done:0",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:done:150",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:sil:1d",
+    "expected": {
+      "kind": "alert_silence",
+      "pct": null,
+      "duration": {
+        "__type__": "timedelta",
+        "total_seconds": 86400.0
+      }
+    }
+  },
+  {
+    "input": "b:sil:7d",
+    "expected": {
+      "kind": "alert_silence",
+      "pct": null,
+      "duration": {
+        "__type__": "timedelta",
+        "total_seconds": 604800.0
+      }
+    }
+  },
+  {
+    "input": "b:sil:3h",
+    "expected": {
+      "kind": "alert_silence",
+      "pct": null,
+      "duration": {
+        "__type__": "timedelta",
+        "total_seconds": 10800.0
+      }
+    }
+  },
+  {
+    "input": "b:sil:40d",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:sil:bad",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:done",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "b:unknown:x",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "x:done:30",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "garbage",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  },
+  {
+    "input": "",
+    "expected": {
+      "kind": "unknown",
+      "pct": null,
+      "duration": null
+    }
+  }
+]

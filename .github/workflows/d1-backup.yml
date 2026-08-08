@@ -1,0 +1,88 @@
+name: d1-backup
+
+on:
+  schedule:
+    # Weekly: Sunday 03:00 UTC (lowest-traffic для cron analyze cycle).
+    - cron: '0 3 * * 0'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.D1_BACKUP_ENABLED == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+        working-directory: worker
+
+      - name: Prepare protected Cloudflare configuration
+        id: cloudflare
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: node scripts/prepare-cloudflare-config.mjs
+
+      - name: Require production configuration
+        if: steps.cloudflare.outputs.ready != 'true'
+        run: exit 1
+
+      - name: Export D1 database
+        if: steps.cloudflare.outputs.ready == 'true'
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/export-d1-safe.mjs
+
+      - name: Pack and encrypt backup
+        env:
+          D1_BACKUP_PASSPHRASE: ${{ secrets.D1_BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$D1_BACKUP_PASSPHRASE" ]; then
+            echo "::error::D1_BACKUP_PASSPHRASE is not configured"
+            exit 1
+          fi
+          DATE=$(date -u +%Y%m%d-%H%M%S)
+          mkdir -p /tmp/backup-$DATE
+          cp /tmp/d1-backup.sql /tmp/backup-$DATE/
+          cp /tmp/users.json /tmp/bot_state.json /tmp/alert_history.json /tmp/conversions.json /tmp/events.json /tmp/backup-$DATE/
+          tar czf /tmp/d1-backup-$DATE.tgz -C /tmp backup-$DATE
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 \
+            -in /tmp/d1-backup-$DATE.tgz \
+            -out /tmp/d1-backup-$DATE.tgz.enc \
+            -pass env:D1_BACKUP_PASSPHRASE
+          test -s /tmp/d1-backup-$DATE.tgz.enc
+          echo "DATE=$DATE" >> $GITHUB_ENV
+
+      - name: Upload backup artifact (retained 90 days)
+        uses: actions/upload-artifact@v7
+        with:
+          name: d1-backup-${{ env.DATE }}
+          path: /tmp/d1-backup-${{ env.DATE }}.tgz.enc
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          echo "## D1 backup complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artifact: \`d1-backup-${{ env.DATE }}\` (AES-256-CBC + PBKDF2)" >> $GITHUB_STEP_SUMMARY
+          echo "Retention: 90 days" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Restoration (if needed):" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download artifact via gh CLI: \`gh run download <run-id> -n d1-backup-${{ env.DATE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Decrypt: \`openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 -in d1-backup-${{ env.DATE }}.tgz.enc -out d1-backup-${{ env.DATE }}.tgz -pass env:D1_BACKUP_PASSPHRASE\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Unpack: \`tar xzf d1-backup-${{ env.DATE }}.tgz\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Apply SQL: \`npx wrangler d1 execute euro-dollar-bot-state --remote --file=backup-${{ env.DATE }}/d1-backup.sql\`" >> $GITHUB_STEP_SUMMARY

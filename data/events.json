@@ -1,0 +1,4 @@
+{
+  "_comment": "Календарь событий, при которых анализ подавляется (FOMC, ECB, NFP, CPI). ts строго в UTC. Дефолтные blackout-окна задаёт worker/src/analyze/events-filter.ts. Для D1 добавляйте события новой versioned migration.",
+  "events": []
+}

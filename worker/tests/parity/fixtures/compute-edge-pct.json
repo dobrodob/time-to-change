@@ -1,0 +1,51 @@
+[
+  {
+    "input": {
+      "rate": 1.18,
+      "baseline_median_30d": 1.17
+    },
+    "expected": 0.8547008547008554
+  },
+  {
+    "input": {
+      "rate": 1.17,
+      "baseline_median_30d": 1.17
+    },
+    "expected": 0.0
+  },
+  {
+    "input": {
+      "rate": 1.1,
+      "baseline_median_30d": 1.17
+    },
+    "expected": -5.98290598290597
+  },
+  {
+    "input": {
+      "rate": 1.18,
+      "baseline_median_30d": null
+    },
+    "expected": 0.0
+  },
+  {
+    "input": {
+      "rate": 1.0,
+      "baseline_median_30d": 0.9
+    },
+    "expected": 11.111111111111107
+  },
+  {
+    "input": {
+      "rate": 0.9,
+      "baseline_median_30d": 1.0
+    },
+    "expected": -9.999999999999998
+  },
+  {
+    "input": {
+      "rate": 1.18,
+      "baseline_median_30d": 0.0
+    },
+    "expected": 0.0
+  }
+]
