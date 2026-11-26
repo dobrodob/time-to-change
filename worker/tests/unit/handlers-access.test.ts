@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { dispatchCallback, dispatchMessage } from "../../src/commands/handlers";
 import type { ValidatedEnv } from "../../src/env";
 import type { StateRepo } from "../../src/state/repo";
-import type { BotState, User } from "../../src/state/schema";
+import type { Asset, BotState, User } from "../../src/state/schema";
 import type { TelegramClient } from "../../src/telegram/api";
 import { parseCallbackV2, parseCommand } from "../../src/telegram/parser";
 import type { TelegramCallbackQuery, TelegramMessage } from "../../src/telegram/types";
@@ -40,6 +40,7 @@ function makeRepo(role: User["role"]) {
   const user = makeUser(role);
   return {
     getBotState: vi.fn().mockResolvedValue(botState),
+    setMenuRegistered: vi.fn().mockResolvedValue(undefined),
     expireSilencesIfDue: vi.fn().mockResolvedValue(0),
     getUser: vi.fn().mockResolvedValue(user),
     listUsers: vi.fn().mockResolvedValue([user]),
@@ -49,6 +50,8 @@ function makeRepo(role: User["role"]) {
     removeUser: vi.fn().mockResolvedValue(true),
     addConversion: vi.fn().mockResolvedValue(undefined),
     getPrimaryAssetState: vi.fn().mockResolvedValue(null),
+    listActiveAssets: vi.fn().mockResolvedValue([]),
+    getAssetState: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -79,6 +82,48 @@ const env = {
 } satisfies ValidatedEnv;
 
 describe("owner/member access boundaries", () => {
+  it("shows the owner analysis status for an active MOEX asset via /health", async () => {
+    const repo = makeRepo("owner");
+    const tg = makeTelegram();
+    repo.listActiveAssets.mockResolvedValue([
+      {
+        symbol: "ROSN",
+        display_name: "Роснефть",
+        type: "stock_ru",
+        provider: "moex",
+        currency: "RUB",
+        active: true,
+        added_at: "2026-08-08T00:00:00.000Z",
+      } satisfies Asset,
+    ]);
+    await dispatchMessage(
+      env,
+      repo as unknown as StateRepo,
+      tg as unknown as TelegramClient,
+      message("/health"),
+      parseCommand("/health"),
+    );
+    expect(repo.getAssetState).toHaveBeenCalledWith("ROSN");
+    expect(tg.sendMessage).toHaveBeenCalledWith(
+      100,
+      expect.stringMatching(/ROSN.*анализа ещё не было/),
+    );
+  });
+
+  it("does not look up the instance's active assets for a member's /health", async () => {
+    const repo = makeRepo("member");
+    const tg = makeTelegram();
+    await dispatchMessage(
+      env,
+      repo as unknown as StateRepo,
+      tg as unknown as TelegramClient,
+      message("/health"),
+      parseCommand("/health"),
+    );
+    expect(repo.listActiveAssets).not.toHaveBeenCalled();
+    expect(tg.sendMessage.mock.calls.at(-1)?.[1]).toContain("только для владельца");
+  });
+
   it("scopes /history to the requesting member", async () => {
     const repo = makeRepo("member");
     const tg = makeTelegram();

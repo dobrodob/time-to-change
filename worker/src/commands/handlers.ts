@@ -33,6 +33,7 @@ import type {
 import {
   TELEGRAM_MENU_COMMANDS,
   formatAlreadySubscribed,
+  formatAnalysisHealth,
   formatBudgetCancel,
   formatBudgetDone,
   formatBudgetNoActive,
@@ -188,6 +189,16 @@ export async function dispatchMessage(
     case "help":
       await safeSend(tg, chatId, formatHelp(user.role));
       return;
+    case "health": {
+      if (!(await requireOwner(tg, user))) return;
+      const now = nowIso();
+      const assets = await repo.listActiveAssets();
+      const entries = await Promise.all(
+        assets.map(async (asset) => ({ asset, state: await repo.getAssetState(asset.symbol) })),
+      );
+      await safeSend(tg, chatId, formatAnalysisHealth(entries, now, TZ));
+      return;
+    }
 
     case "status":
       await handleStatus(repo, tg, user, cmd);

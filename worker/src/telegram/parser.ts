@@ -166,6 +166,8 @@ export function parseCommand(text: string): ParsedCommand {
       return emptyCommand("start");
     case "/help":
       return emptyCommand("help");
+    case "/health":
+      return emptyCommand("health");
     case "/resume":
       return emptyCommand("resume");
     case "/whoami":

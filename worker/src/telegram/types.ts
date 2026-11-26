@@ -49,6 +49,7 @@ export interface TelegramUpdate {
 export type CommandKind =
   | "start"
   | "help"
+  | "health"
   | "status"
   | "silence"
   | "resume"

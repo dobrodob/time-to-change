@@ -6,6 +6,7 @@ import {
   weightsFor,
 } from "../analyze/scoring";
 import { type PacingSnapshot, computePacing } from "../budget/pacing";
+import { evaluateFreshness } from "../monitor/freshness";
 import type {
   Asset,
   AssetState,
@@ -828,6 +829,24 @@ function pluralAlerts(n: number): string {
 
 // ============ Help / system ============
 
+export function formatAnalysisHealth(
+  entries: Array<{ asset: Asset; state: AssetState | null }>,
+  now: string,
+  tzName = "Europe/Madrid",
+): string {
+  if (entries.length === 0) return "Нет активных подписок для анализа.";
+
+  const lines = entries.map(({ asset, state }) => {
+    const decision = evaluateFreshness(asset, state, now);
+    const last = state?.last_score_breakdown?.ts;
+    const updated = last ? `последний анализ ${formatLocalFull(last, tzName)}` : "анализа ещё не было";
+    const status = decision.reason === "market_closed" ? "рынок закрыт, " : "";
+    const warning = decision.alert ? "⚠️ " : "";
+    return `${warning}<b>${escapeHtml(asset.symbol)}</b> — ${status}${updated}`;
+  });
+  return `<b>Свежесть анализа</b>\n\n${lines.join("\n")}`;
+}
+
 export function formatHelp(role: "owner" | "member" = "owner"): string {
   const common = `<b>Команды</b>
 
@@ -858,7 +877,10 @@ export function formatHelp(role: "owner" | "member" = "owner"): string {
 /leave — ${role === "owner" ? "недоступно владельцу" : "удалить себя из бота"}
 `;
   if (role !== "owner") return common;
-  return `${common}\n<b>Владелец · бюджет EUR/USD</b>
+  return `${common}\n<b>Владелец</b>
+/health — когда бот в последний раз обновлял анализ по каждому активу
+
+<b>Бюджет EUR/USD</b>
 /budget 6000 30d — поставить цель
 /budget done 1500 1.0852 — записать обмен
 /budget — показать прогресс
