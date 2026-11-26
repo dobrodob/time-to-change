@@ -87,6 +87,7 @@ Forex and commodities balance trend with timing; crypto gives more weight to hou
 | `/status [SYMBOL]` | Shows an overview or one detailed asset |
 | `/explain [SYMBOL]` | Breaks the score down into five components |
 | `/history` | Shows the latest 10 alerts for the current user's subscriptions |
+| `/health` | Owner only: shows when analysis last ran for each active asset |
 | `/silence [1h\|3d\|2w]` | Pauses notifications; seven days by default |
 | `/resume` | Ends silence early |
 | `/quiet 23 7` | Sets personal quiet hours |

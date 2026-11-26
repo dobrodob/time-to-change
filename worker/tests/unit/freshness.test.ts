@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatAnalysisHealth } from "../../src/commands/formatter";
 import { collectStaleAssets, evaluateFreshness } from "../../src/monitor/freshness";
 import type { Asset, AssetState, AssetType, LastScoreBreakdown } from "../../src/state/schema";
 
@@ -56,6 +57,18 @@ function makeAssetState(breakdownTs: string | null): AssetState {
 const THU_14_UTC = "2026-05-14T14:00:00Z";
 // 2026-05-16 — Saturday, forex CLOSED.
 const SAT_12_UTC = "2026-05-16T12:00:00Z";
+
+it("marks stale analysis in /health only during an open market", () => {
+  const asset = makeForexAsset();
+  const state = makeAssetState("2026-05-14T11:00:00Z");
+
+  expect(formatAnalysisHealth([{ asset, state }], THU_14_UTC, "UTC")).toContain(
+    "⚠️ <b>EUR/USD</b> — последний анализ 2026-05-14 11:00",
+  );
+  expect(formatAnalysisHealth([{ asset, state }], SAT_12_UTC, "UTC")).toContain(
+    "\n\n<b>EUR/USD</b> — рынок закрыт, последний анализ 2026-05-14 11:00",
+  );
+});
 
 describe("evaluateFreshness", () => {
   it("asset=null → no_alert / no_asset (нет primary asset, ничего не делаем)", () => {

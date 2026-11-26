@@ -111,7 +111,7 @@ function formatFreshnessAlert(stale: StaleAsset[]): string {
 
 ${lines.join("\n")}
 
-Старше порога ${thresholdHours}ч. Проверь /health + wrangler tail + квоту TwelveData / доступность Yahoo (металлы).`;
+Порог предупреждения — ${thresholdHours} ч. Последние обновления по активам — /health.`;
 }
 
 /**
