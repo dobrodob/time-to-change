@@ -24,6 +24,9 @@ export interface PriceProvider {
 
   /** Validate symbol — провайдер знает свои тикеры. Возвращает display info + currency. */
   resolveSymbol(symbol: string): Promise<ResolvedSymbol | null>;
+
+  /** Освобождает соединения провайдера после анализа или поиска тикера. */
+  close?(): Promise<void>;
 }
 
 export interface ResolvedSymbol {

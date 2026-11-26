@@ -16,10 +16,12 @@
 import { fetchWithRetry } from "../../lib/http";
 import { errorKind, log } from "../../lib/log";
 import type { Candle } from "../scoring";
+import { MOEX_ISS_ORIGIN, type MoexTransport, createMoexTransport } from "./moex-transport";
 import type { FetchResult, Interval, PriceProvider, ResolvedSymbol } from "./types";
 
-const BASE_URL = "https://iss.moex.com/iss";
+const BASE_URL = `${MOEX_ISS_ORIGIN}/iss`;
 const REQUEST_TIMEOUT_MS = 8000;
+const CANDLE_PAGE_SIZE = 500;
 
 export class MoexError extends Error {
   constructor(message: string) {
@@ -43,6 +45,12 @@ interface MoexSecuritySearchResponse {
 }
 
 export class MoexProvider implements PriceProvider {
+  constructor(private readonly transport: MoexTransport = createMoexTransport()) {}
+
+  async close(): Promise<void> {
+    await this.transport.close?.();
+  }
+
   async fetchCandles(symbol: string, interval: Interval, count: number): Promise<FetchResult> {
     const moexInterval = interval === "1h" ? 60 : 24;
     // Тянем достаточно глубоко чтобы получить минимум `count` candles.
@@ -54,18 +62,26 @@ export class MoexProvider implements PriceProvider {
     const fromDate = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
     const url = `${BASE_URL}/engines/stock/markets/shares/securities/${encodeURIComponent(symbol)}/candles.json?from=${fromDate}&interval=${moexInterval}`;
 
-    // retry+timeout через общий хелпер: MOEX ISS (российская биржа с CF edge)
-    // флакает — раньше единичный fetch падал сразу и ROSN протухал (freshness-алерты).
-    const res = await fetchWithRetry(url);
-    const payload = (await res.json()) as MoexCandlesResponse;
-    if (!payload.candles) {
-      throw new MoexError("Unexpected MOEX payload");
+    // ISS выдаёт историю от from страницами. Первая страница может заканчиваться
+    // задолго до сегодняшней сессии, поэтому берём последние свечи после обхода.
+    const maxDataPages = Math.ceil(
+      ((daysBack + 2) * (interval === "1h" ? 24 : 1)) / CANDLE_PAGE_SIZE,
+    );
+    const candles: Candle[] = [];
+    for (let page = 0; page <= maxDataPages; page++) {
+      const res = await fetchWithRetry(`${url}&start=${page * CANDLE_PAGE_SIZE}`, {
+        fetcher: this.transport.fetch,
+      });
+      const payload = (await res.json()) as MoexCandlesResponse;
+      if (!payload.candles) throw new MoexError("Unexpected MOEX payload");
+      const { columns, data } = payload.candles;
+      if (data.length > 0) candles.push(...parseCandles(columns, data));
+      if (data.length < CANDLE_PAGE_SIZE) {
+        if (candles.length === 0) throw new MoexError("No valid MOEX candles");
+        return { candles: candles.slice(-count), creditsUsed: 0 };
+      }
     }
-    const candles = parseCandles(payload.candles.columns, payload.candles.data);
-    if (candles.length === 0) throw new MoexError("No valid MOEX candles");
-    // Take only last `count` candles.
-    const trimmed = candles.slice(-count);
-    return { candles: trimmed, creditsUsed: 0 };
+    throw new MoexError("MOEX candle pagination did not reach the last page");
   }
 
   async resolveSymbol(symbol: string): Promise<ResolvedSymbol | null> {
@@ -73,7 +89,7 @@ export class MoexProvider implements PriceProvider {
     // MOEX securities search.
     const url = `${BASE_URL}/securities.json?q=${encodeURIComponent(upper)}&iss.only=securities&securities.columns=secid,shortname,is_traded,group&engine=stock&market=shares`;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      const res = await this.transport.fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       if (!res.ok) return null;
       const payload = (await res.json()) as MoexSecuritySearchResponse;
       const cols = payload.securities?.columns ?? [];

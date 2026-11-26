@@ -101,8 +101,12 @@ export async function resolveSymbolAuto(
   const alternative: AssetProvider = guessed === "twelvedata" ? "moex" : "twelvedata";
   for (const prov of [guessed, alternative]) {
     const provider = getProvider(prov, twelvedataApiKey);
-    const resolved = await provider.resolveSymbol(rawSymbol);
-    if (resolved) return { resolved, provider: prov };
+    try {
+      const resolved = await provider.resolveSymbol(rawSymbol);
+      if (resolved) return { resolved, provider: prov };
+    } finally {
+      await provider.close?.();
+    }
   }
   return null;
 }

@@ -19,6 +19,7 @@ export interface FetchRetryOptions {
   timeoutMs?: number;
   maxRetries?: number;
   baseDelayMs?: number;
+  fetcher?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,13 +30,14 @@ export async function fetchWithRetry(url: string, opts: FetchRetryOptions = {}):
     timeoutMs = 8000,
     maxRetries = 3,
     baseDelayMs = 1000,
+    fetcher = fetch,
   } = opts;
   let delayMs = baseDelayMs;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let res: Response;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+      res = await fetcher(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
     } catch (err) {
       lastErr = err; // network / timeout(abort) — ретраябельно
       if (attempt < maxRetries) {
