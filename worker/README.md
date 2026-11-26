@@ -103,6 +103,11 @@ public Actions logs.
 | `XAU/XAG/XPT/XPD` pairs | Yahoo Finance |
 | Crypto pairs | Coinbase Exchange |
 
+MOEX ISS uses a dedicated TLS client that validates `iss.moex.com` against the
+CA published by Gosuslugi. The CA is scoped to MOEX requests. Update
+`src/analyze/providers/moex-root-ca.ts` if the exchange changes its certificate
+chain. The provider walks the ISS candle pages to reach the most recent rows.
+
 The stored D1 provider enum intentionally remains `twelvedata | moex`; metals
 and crypto are routed at runtime. Rebuilding the `assets` table only to expand
 that enum can cascade into subscriptions and asset state.

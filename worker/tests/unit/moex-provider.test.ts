@@ -2,14 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MoexError, MoexProvider, parseCandles } from "../../src/analyze/providers/moex";
 
 describe("MoexProvider.fetchCandles — retry через общий fetchWithRetry", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.useRealTimers());
 
-  const okBody = JSON.stringify({
-    candles: {
-      columns: ["open", "close", "high", "low", "value", "volume", "begin"],
-      data: [[100, 101, 102, 99, 0, 0, "2026-06-30 10:00:00"]],
-    },
-  });
+  const columns = ["open", "close", "high", "low", "value", "volume", "begin"];
+  const firstCandle = [100, 101, 102, 99, 0, 0, "2026-06-30 10:00:00"];
+  const okBody = JSON.stringify({ candles: { columns, data: [firstCandle] } });
 
   it("ретраит transient 503 затем 200, парсит свечи, creditsUsed=0", async () => {
     vi.useFakeTimers();
@@ -17,8 +14,7 @@ describe("MoexProvider.fetchCandles — retry через общий fetchWithRet
     const m = vi.fn(async () =>
       n++ === 0 ? new Response("err", { status: 503 }) : new Response(okBody, { status: 200 }),
     );
-    vi.stubGlobal("fetch", m);
-    const settled = new MoexProvider().fetchCandles("ROSN", "1h", 5).then(
+    const settled = new MoexProvider({ fetch: m }).fetchCandles("ROSN", "1h", 5).then(
       (r) => r,
       (e) => e,
     );
@@ -32,9 +28,24 @@ describe("MoexProvider.fetchCandles — retry через общий fetchWithRet
 
   it("4xx (битый тикер) — фатально, без retry", async () => {
     const m = vi.fn(async () => new Response("Not Found", { status: 404 }));
-    vi.stubGlobal("fetch", m);
-    await expect(new MoexProvider().fetchCandles("NOPE", "1h", 5)).rejects.toThrow();
+    await expect(new MoexProvider({ fetch: m }).fetchCandles("NOPE", "1h", 5)).rejects.toThrow();
     expect(m).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the latest candles from subsequent ISS pages", async () => {
+    const nextCandle = [101, 102, 103, 100, 0, 0, "2026-07-01 10:00:00"];
+    const fetch = vi.fn(async (url: string) => {
+      const offset = new URL(url).searchParams.get("start");
+      const data = offset === "0" ? Array.from({ length: 500 }, () => firstCandle) : [nextCandle];
+      return Response.json({ candles: { columns, data } });
+    });
+    const result = await new MoexProvider({ fetch }).fetchCandles("ROSN", "1h", 2);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(fetch.mock.calls[1][0]).searchParams.get("start")).toBe("500");
+    expect(result.candles.map((candle) => candle.datetime)).toEqual([
+      "2026-06-30T07:00:00.000Z",
+      "2026-07-01T07:00:00.000Z",
+    ]);
   });
 });
 

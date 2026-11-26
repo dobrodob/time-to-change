@@ -90,6 +90,8 @@ async function analyzeAsset(
       return;
     }
     throw err;
+  } finally {
+    await provider.close?.();
   }
 
   if (totalCredits > 0) await repo.bumpAssetQuota(asset.symbol, totalCredits);
