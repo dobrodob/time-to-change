@@ -14,7 +14,7 @@ describe("MoexProvider.fetchCandles — retry через общий fetchWithRet
     const m = vi.fn(async () =>
       n++ === 0 ? new Response("err", { status: 503 }) : new Response(okBody, { status: 200 }),
     );
-    const settled = new MoexProvider({ fetch: m }).fetchCandles("ROSN", "1h", 5).then(
+    const settled = new MoexProvider({ fetch: m }).fetchCandles("ROSN", "1h", 1).then(
       (r) => r,
       (e) => e,
     );
@@ -32,16 +32,27 @@ describe("MoexProvider.fetchCandles — retry через общий fetchWithRet
     expect(m).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the latest candles from subsequent ISS pages", async () => {
+  it("fetches disjoint windows newest first and returns candles in chronological order", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T22:30:00Z")); // July 6 in Moscow
     const nextCandle = [101, 102, 103, 100, 0, 0, "2026-07-01 10:00:00"];
     const fetch = vi.fn(async (url: string) => {
-      const offset = new URL(url).searchParams.get("start");
-      const data = offset === "0" ? Array.from({ length: 500 }, () => firstCandle) : [nextCandle];
+      const till = new URL(url).searchParams.get("till");
+      const data = till === "2026-07-06" ? [nextCandle] : [firstCandle];
       return Response.json({ candles: { columns, data } });
     });
     const result = await new MoexProvider({ fetch }).fetchCandles("ROSN", "1h", 2);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(new URL(fetch.mock.calls[1][0]).searchParams.get("start")).toBe("500");
+    const queries = fetch.mock.calls.map(([url]) => Object.fromEntries(new URL(url).searchParams));
+    const candleQuery = {
+      interval: "60",
+      "iss.meta": "off",
+      "iss.only": "candles",
+      "candles.columns": "open,close,high,low,begin",
+    };
+    expect(queries).toEqual([
+      { ...candleQuery, from: "2026-07-01", till: "2026-07-06" },
+      { ...candleQuery, from: "2026-06-25", till: "2026-06-30" },
+    ]);
     expect(result.candles.map((candle) => candle.datetime)).toEqual([
       "2026-06-30T07:00:00.000Z",
       "2026-07-01T07:00:00.000Z",

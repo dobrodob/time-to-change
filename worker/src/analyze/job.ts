@@ -161,6 +161,7 @@ async function analyzeAsset(
     log("info", "asset_analyze_done", {
       symbol: asset.symbol,
       direction: dir,
+      last_candle_at: hourly.at(-1)?.datetime,
       score: breakdown.score,
       regime: breakdown.regime,
       rate: breakdown.rate,

@@ -6,7 +6,7 @@
  *
  * Endpoints:
  *   GET /iss/engines/stock/markets/shares/securities/{SECID}/candles.json
- *     ?from=YYYY-MM-DD&interval={1|10|60|24}
+ *     ?from=YYYY-MM-DD&till=YYYY-MM-DD&interval={1|10|60|24}
  *
  *   interval: 1=1min, 10=10min, 60=hourly, 24=daily
  *
@@ -21,7 +21,8 @@ import type { FetchResult, Interval, PriceProvider, ResolvedSymbol } from "./typ
 
 const BASE_URL = `${MOEX_ISS_ORIGIN}/iss`;
 const REQUEST_TIMEOUT_MS = 8000;
-const CANDLE_PAGE_SIZE = 500;
+const DAY_MS = 86_400_000;
+const MOSCOW_OFFSET_MS = 3 * 3_600_000;
 
 export class MoexError extends Error {
   constructor(message: string) {
@@ -47,41 +48,34 @@ interface MoexSecuritySearchResponse {
 export class MoexProvider implements PriceProvider {
   constructor(private readonly transport: MoexTransport = createMoexTransport()) {}
 
-  async close(): Promise<void> {
-    await this.transport.close?.();
-  }
-
   async fetchCandles(symbol: string, interval: Interval, count: number): Promise<FetchResult> {
-    const moexInterval = interval === "1h" ? 60 : 24;
-    // Тянем достаточно глубоко чтобы получить минимум `count` candles.
-    // Daily: count * 1 day. Hourly: count * 1 hr / ~8 hours per trading day = ceil(count/8) days.
-    const daysBack =
-      interval === "1day"
-        ? Math.max(count + 50, 250) // запас на weekends
-        : Math.max(Math.ceil(count / 8) + 20, 40);
-    const fromDate = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
-    const url = `${BASE_URL}/engines/stock/markets/shares/securities/${encodeURIComponent(symbol)}/candles.json?from=${fromDate}&interval=${moexInterval}`;
-
-    // ISS выдаёт историю от from страницами. Первая страница может заканчиваться
-    // задолго до сегодняшней сессии, поэтому берём последние свечи после обхода.
-    const maxDataPages = Math.ceil(
-      ((daysBack + 2) * (interval === "1h" ? 24 : 1)) / CANDLE_PAGE_SIZE,
-    );
+    const hourly = interval === "1h";
+    const daysBack = hourly ? Math.max(Math.ceil(count / 8) + 20, 40) : Math.ceil(count * 7 / 5) + 50;
+    // Keep responses small and below the 500-row ISS limit, even with 24 hourly bars per day.
+    const windowDays = hourly ? 6 : 60;
+    const moscowNow = Date.now() + MOSCOW_OFFSET_MS;
+    const url = `${BASE_URL}/engines/stock/markets/shares/securities/${encodeURIComponent(symbol)}/candles.json`;
     const candles: Candle[] = [];
-    for (let page = 0; page <= maxDataPages; page++) {
-      const res = await fetchWithRetry(`${url}&start=${page * CANDLE_PAGE_SIZE}`, {
+    for (let newest = 0; newest <= daysBack && candles.length < count; newest += windowDays) {
+      const oldest = Math.min(newest + windowDays - 1, daysBack);
+      const params = new URLSearchParams({
+        interval: hourly ? "60" : "24",
+        from: new Date(moscowNow - oldest * DAY_MS).toISOString().slice(0, 10),
+        till: new Date(moscowNow - newest * DAY_MS).toISOString().slice(0, 10),
+        "iss.meta": "off",
+        "iss.only": "candles",
+        "candles.columns": "open,close,high,low,begin",
+      });
+      const res = await fetchWithRetry(`${url}?${params}`, {
         fetcher: this.transport.fetch,
       });
       const payload = (await res.json()) as MoexCandlesResponse;
       if (!payload.candles) throw new MoexError("Unexpected MOEX payload");
       const { columns, data } = payload.candles;
-      if (data.length > 0) candles.push(...parseCandles(columns, data));
-      if (data.length < CANDLE_PAGE_SIZE) {
-        if (candles.length === 0) throw new MoexError("No valid MOEX candles");
-        return { candles: candles.slice(-count), creditsUsed: 0 };
-      }
+      if (data.length > 0) candles.unshift(...parseCandles(columns, data));
     }
-    throw new MoexError("MOEX candle pagination did not reach the last page");
+    if (candles.length === 0) throw new MoexError("No valid MOEX candles");
+    return { candles: candles.slice(-count), creditsUsed: 0 };
   }
 
   async resolveSymbol(symbol: string): Promise<ResolvedSymbol | null> {
